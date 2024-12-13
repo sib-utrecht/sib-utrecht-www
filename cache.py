@@ -191,12 +191,12 @@ def SubsituteRoutes(code, currentPath):
         if path == None:
             return match.group()
         return "\"" + GetNewUrl(path) + query + "\""
-    
-    code = headRemoveReferences.sub("", code)
+
     code = linkRegex.sub(subNormalLink, code)
     code = urlRegex.sub(subUrlLink, code)
     code = srcsetRegex.sub(subSrcset, code)
     code = stringRegex.sub(subString, code)
+    code = headRemoveReferences.sub("", code)
     return code
 
 def CheckCodeForLinks(code, currentPath):
