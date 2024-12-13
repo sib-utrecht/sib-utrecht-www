@@ -46,7 +46,7 @@ Parameters:
     Default: /
   RedirectPathAuthRefresh:
     Type: String
-    Description: The URL path that should handle the JWT refresh request
+    Description: The URL path that should handle the JWT refresh request.
     Default: /refreshauth
   SignOutUrl:
     Type: String
@@ -82,7 +82,7 @@ Parameters:
     Description: The HTTP headers to set on all responses from CloudFront. To be provided as a JSON object
     Default: >-
       {
-        "Content-Security-Policy": "default-src 'none'; img-src 'self'; script-src 'self' https://code.jquery.com https://stackpath.bootstrapcdn.com; style-src 'self' 'unsafe-inline' https://stackpath.bootstrapcdn.com; object-src 'none'; connect-src 'self' https://*.amazonaws.com https://*.amazoncognito.com",
+        "Content-Security-Policy": "default-src 'none'; font-src 'self'; img-src 'self' https://*.sib-utrecht.nl https://sib-utrecht.nl; script-src 'self' https://code.jquery.com https://stackpath.bootstrapcdn.com; style-src 'self' 'unsafe-inline' https://stackpath.bootstrapcdn.com; object-src 'none'; connect-src 'self' https://*.sib-utrecht.nl https://*.amazonaws.com https://*.amazoncognito.com",
         "Strict-Transport-Security": "max-age=31536000; includeSubdomains; preload",
         "Referrer-Policy": "same-origin",
         "X-XSS-Protection": "1; mode=block",
@@ -121,7 +121,8 @@ Parameters:
   UserPoolArn:
     Type: String
     Description: "Specify the ARN of an existing user pool to use that one instead of creating a new one. If specified, then UserPoolClientId must also be specified. Also, the User Pool should have a domain configured"
-    Default: "arn:aws:cognito-idp:eu-north-1:381492000004:userpool/eu-north-1_jcYGksnN1"
+    # Default: "arn:aws:cognito-idp:eu-north-1:381492000004:userpool/eu-north-1_jcYGksnN1"
+    Default: "arn:aws:cognito-idp:eu-central-1:381492000004:userpool/eu-central-1_Ecd3uxa0G"
   UserPoolAuthDomain:
     Type: String
     Description: >
@@ -134,7 +135,9 @@ Parameters:
     Description: >
       Specify the ID of an existing user pool client to use that one instead of creating a new one. If specified, then UserPoolArn must also be specified.
       Note: new callback URL's will be added to the pre-existing user pool client (but only if it's in the same AWS account as this stack)
-    Default: "jr3e059rtrju8bp1qj7aeoa41"
+    # Default: "jr3e059rtrju8bp1qj7aeoa41"
+    Default: "3saoma3t11p04k0j3se6jvenab"
+
   UserPoolClientSecret:
     Type: String
     Description: >
@@ -152,7 +155,7 @@ Parameters:
   Version:
     Type: String
     Description: "Changing this parameter after initial deployment forces redeployment of Lambda@Edge functions"
-    Default: "2.3.2"
+    Default: "2.3.3"
   LogLevel:
     Type: String
     Description: "Use for development: setting to a value other than none turns on logging at that level. Warning! This will log sensitive data, use for development only"

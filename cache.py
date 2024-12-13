@@ -5,11 +5,15 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--verbose", help="Print every downloaded files and exit on failure", action="store_true")
+parser.add_argument("--offline-use", help="Create a static site for offline use instead of serving", action="store_true")
 parser.add_argument("--root", help="Starting point", default='/')
 args = parser.parse_args()
 
 website = "https://dev2.sib-utrecht.nl"
-folder = "cache"
+OUTPUT_DIR_OFFLINE = "cache"
+OUTPUT_DIR_HTTP = "static"
+# folder = 
+
 # The site should be open soon so it doesn't matter that the credentials are store in this file for now
 auth = ('dev', 'ictcie')
 
@@ -22,8 +26,13 @@ class Route:
     def __str__(self):
         return "'" + self.path + "'" + " (from '" + self.origpath + "'), linked from '" + self.linkedfrom + "'"
 
-routesTodo = {Route(args.root, args.root, "root point")}
+routesTodo = {
+    Route(args.root + "404.html", args.root + "404.html", "404"),
+    Route(args.root, args.root, "root point")}
 routesDone = set()
+
+USE_FILE_LOCATION = args.offline_use
+
 fileLocation = "file://"
 def WriteFile(location, codeBytes):
     os.makedirs(os.path.dirname(location), exist_ok=True)
@@ -33,27 +42,54 @@ def WriteFile(location, codeBytes):
 
 def GetFileLocationFromURL(path, appendix = "/index.html"):
     if '.' in path:
-        return folder + path
-    return folder + path + appendix
+        return OUTPUT_DIR_OFFLINE + path
+    return OUTPUT_DIR_OFFLINE + path + appendix
+
+def GetNewUrl(path, for_writing : bool = False, appendix = "/index.html"):
+    if USE_FILE_LOCATION:
+        rel_path = GetFileLocationFromURL(path, appendix=appendix)
+        if for_writing:
+            return rel_path
+        return fileLocation + os.path.abspath(rel_path)
+    
+    if for_writing:
+        if '.' in path:
+            return OUTPUT_DIR_HTTP + path
+        
+        assert appendix == "/index.html"
+        return OUTPUT_DIR_HTTP + path + appendix
+    
+    return path
+        
 
 def Download(path):
     r = requests.get(website + path, auth = auth)
+    if r.status_code == 404 and path == "/404.html":
+        return r.content
+
     # Also fails on 404
     r.raise_for_status()
     return r.content
 
 def ParseLink(link):
     changed = False
+    query = ""
+
     if link.startswith(website):
         changed = True
         link = link[len(website):]
     loc = link.find('#')
     if loc != -1:
+        # print(f"Found # at position {loc} in {link}")
         changed = True
+        query = link[loc:] + query
         link = link[:loc]
+        
+
     loc = link.find('?') # for now we remove these because it doesn't play nice with with file naming
     if loc != -1:
         changed = True
+        query = link[loc:] + query
         link = link[:loc]
 
     # links to homepage can become empty after removing the website, but already empty links should be ignored
@@ -62,22 +98,25 @@ def ParseLink(link):
     # maybe should remove xmlrpc (https://www.hostinger.com/tutorials/xmlrpc-wordpress)
     # the wp-json is temporary
     if link.startswith('http') or 'xmlrpc' in link or 'mailto' in link or ':' in link or 'wp-json' in link: # the : appears in svg urls
-        return None
-    return link
+        return None, None
+    return link, query
 
 def AddRoute(route):
     if route.path not in routesDone:
         routesTodo.add(route)
 
+headRemoveReferences = re.compile("<link [^>]+//dev2.sib-utrecht.nl[^>]+>")
 linkRegex = re.compile("(href|src)(\\s*)(\\^)?=(\\s*)(\"|')(.*?)(\"|')")
 urlRegex = re.compile("url\\((\"|'|\\&\\#039\\;)?(.*?)(\"|'|\\&\\#039\\;)?\\)")
 srcsetRegex = re.compile("srcset(\\s*)=(\\s*)(\"|')(.*?)(\"|')")
+stringRegex = re.compile("\"https:\\\\?/\\\\?/dev2.sib-utrecht.nl(\\\\?/[^\"]*)\"")
+
 def FindNewRoutes(code, currentPath):
     res = linkRegex.finditer(code)
     for found in res:
         path = found.group(6)
         origpath = path
-        path = ParseLink(path)
+        path, _ = ParseLink(path)
         if path != None:
             AddRoute(Route(path, origpath, currentPath))
 
@@ -85,7 +124,7 @@ def FindNewRoutes(code, currentPath):
     for found in res:
         path = found.group(2)
         origpath = path
-        path = ParseLink(path)
+        path, _ = ParseLink(path)
         if path != None:
             AddRoute(Route(path, origpath, currentPath))
 
@@ -95,12 +134,28 @@ def FindNewRoutes(code, currentPath):
         for link in srcs:
             path = link.split()[0] # Important: same as below
             origpath = path
-            path = ParseLink(path)
+            path, _ = ParseLink(path)
             if path != None:
                 routesTodo.add(Route(path, origpath, currentPath))
+
+    res = stringRegex.finditer(code)
+    for found in res:
+        path = found.group(1).replace('\\/', '/')
+        if path == '/wp-admin/admin-ajax.php':
+            continue
+
+        origpath = path
+        path, _ = ParseLink(path)
+        if path != None:
+            AddRoute(Route(path, origpath, currentPath))
+
+
+
 def SubsituteRoutes(code, currentPath):
     def subNormalLink(match):
-        path = ParseLink(match.group(6))
+        path, query = ParseLink(match.group(6))
+        # print(f"SubNormalLink, full={match.group(6)}, path={path}, query={query}")
+
         if path == None:
             return match.group()
         if match.group(3) == None:
@@ -109,31 +164,39 @@ def SubsituteRoutes(code, currentPath):
         else:
             appendix = ""
             caret = "^"
-        return match.group(1) + match.group(2) + caret + "=" + match.group(4) + match.group(5) + fileLocation + os.path.abspath(GetFileLocationFromURL(path, appendix=appendix)) + match.group(7)
+        return match.group(1) + match.group(2) + caret + "=" + match.group(4) + match.group(5) + GetNewUrl(path, appendix=appendix) + query + match.group(7)
     def subUrlLink(match):
-        path = ParseLink(match.group(2))
+        path, query = ParseLink(match.group(2))
         if path == None:
             return match.group()
         closingDelimeter = match.group(1)
         if closingDelimeter == None:
             closingDelimeter = ''
-        return "url(" + closingDelimeter + fileLocation + os.path.abspath(GetFileLocationFromURL(path)) + closingDelimeter + ')'
+        return "url(" + closingDelimeter + GetNewUrl(path) + query + closingDelimeter + ')'
 
     def subSrcset(match):
         output = []
         srcs = match.group(4).split(',')
         for src in srcs:
             split = src.split() # Important: don't give parameters to split in order to split on multiple consecutive whitespaces
-            path = ParseLink(split[0])
+            path, query = ParseLink(split[0])
             if path == None:
                 output.append(src + ' ' + split[1])
                 continue
-            output.append(fileLocation + os.path.abspath(GetFileLocationFromURL(path)) + ' ' + split[1])
+            output.append(GetNewUrl(path) + query + ' ' + split[1])
         return "srcset=" + match.group(3) + ','.join(output) + match.group(5)
-
+    
+    def subString(match):
+        path, query = ParseLink(match.group(1))
+        if path == None:
+            return match.group()
+        return "\"" + GetNewUrl(path) + query + "\""
+    
+    code = headRemoveReferences.sub("", code)
     code = linkRegex.sub(subNormalLink, code)
     code = urlRegex.sub(subUrlLink, code)
     code = srcsetRegex.sub(subSrcset, code)
+    code = stringRegex.sub(subString, code)
     return code
 
 def CheckCodeForLinks(code, currentPath):
@@ -154,7 +217,7 @@ while len(routesTodo) != 0:
                     fileBytes = CheckCodeForLinks(decoded, nextRoute.path).encode('utf-8')
             except UnicodeError as e:
                 pass
-            WriteFile(GetFileLocationFromURL(nextRoute.path), fileBytes)
+            WriteFile(GetNewUrl(nextRoute.path, for_writing=True), fileBytes)
             if args.verbose:
                 print("Succesfully downloaded ", nextRoute)
         except Exception as e:

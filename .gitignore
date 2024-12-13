@@ -1,3 +1,5 @@
 .aws-sam/build/
 .aws-sam/build.toml
+.aws-sam/sync.toml
 cache
+static/
