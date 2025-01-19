@@ -3,3 +3,5 @@
 .aws-sam/sync.toml
 cache
 static/
+launch.json
+shell.nix
