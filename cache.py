@@ -9,10 +9,9 @@ import pytz
 import functools
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--verbose", help="Print every downloaded files and exit on failure", action="store_true")
+parser.add_argument("--verbose", help="Exit on failure", action="store_true")
 parser.add_argument("--offline-use", help="Create a static site for offline use instead of serving", action="store_true")
 parser.add_argument("--root", help="Starting point", default='/')
-parser.add_argument("--update", help="Only download files that have changed since the last time", action="store_true")
 args = parser.parse_args()
 
 website = "https://dev2.sib-utrecht.nl"
@@ -22,6 +21,7 @@ OUTPUT_DIR = OUTPUT_DIR_OFFLINE if args.offline_use else OUTPUT_DIR_HTTP
 
 # The site should be open soon so it doesn't matter that the credentials are store in this file for now
 auth = ('dev', 'ictcie')
+params = {"noauth": "true"}
 
 class Route:
     def __init__(self, path, origpath, linkedfrom, query = ""):
@@ -35,6 +35,7 @@ class Route:
 
 routesTodo = {
     Route(args.root + "404.html", args.root + "404.html", "404"),
+    Route(args.root + "symposium", args.root + "symposium", "root point"),
     Route(args.root, args.root, "root point")}
 routesDone = set()
 
@@ -89,15 +90,12 @@ def GetLocationOfTimestampFromURL(path, use_orig):
     return f"{GetNewUrl(path, for_writing=True, use_orig=use_orig)}.time"
 
 def Download(path):
-    r = requests.get(website + path, auth = auth)
+    r = requests.get(website + path, auth = auth, params=params)
     if r.status_code == 404 and path == "/404.html":
         return r.content
 
     # Also fails on 404
     r.raise_for_status()
-    if args.verbose:
-        print("Succesfully downloaded ", path)
-
     return r.content
 
 def ShouldRedownload(route, time):
@@ -115,21 +113,23 @@ def ShouldRedownload(route, time):
         if time >= MODIFICATION_TIMES[path]:
             return False
     except:
-        print(f"File didn't exist in the database of modified times {route.path}")
+        print(f"WARNING: File didn't exist in the database of modified times {route.path}")
     return True
 
 
 # Return (content, wasDownloaded)
 def Get(route):
-    if args.update:
-        if (os.path.exists(GetNewUrl(route.path, for_writing=True, use_orig=True))):
-            with open(GetLocationOfTimestampFromURL(route.path, use_orig=True)) as f:
-                time = datetime.fromisoformat(f.read()).replace(tzinfo=timezone.utc)
-            if (not ShouldRedownload(route, time)):
-                if args.verbose:
-                    print(f"Moving file {route.path} from the previous download")
-                with open(GetNewUrl(route.path, for_writing=True, use_orig=True), "rb") as f:
-                    return (f.read(), False)
+    if (os.path.exists(GetNewUrl(route.path, for_writing=True, use_orig=True))):
+        with open(GetLocationOfTimestampFromURL(route.path, use_orig=True)) as f:
+            time = datetime.fromisoformat(f.read()).replace(tzinfo=timezone.utc)
+        if (not ShouldRedownload(route, time)):
+            with open(GetNewUrl(route.path, for_writing=True, use_orig=True), "rb") as f:
+                print(f"Moving file {route.path} from previous download...", end="")
+                return (f.read(), False)
+        else:
+            print(f"File {route.path} is invalidated and will be redownloaded...", end="")
+    else:
+        print(f"File {route.path} did not exist in previous download: downloading...", end="")
     return (Download(route.path), True)
 
 def ParseLink(link, wasDownloaded = True):
@@ -141,7 +141,6 @@ def ParseLink(link, wasDownloaded = True):
         link = link[len(website):]
     loc = link.find('#')
     if loc != -1:
-        # print(f"Found # at position {loc} in {link}")
         changed = True
         query = link[loc:] + query
         link = link[:loc]
@@ -275,8 +274,8 @@ TIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
 def HandleSingleFile(nextRoute):
     if nextRoute.path == "/restricted/documents" or nextRoute.path == "/restricted" or nextRoute.path == "/restricted/":
-        # For now just ignore this
-        return 
+        # For now just ignore this, because these paths are relative
+        return
     try:
         (fileBytes, wasDownloaded) = Get(nextRoute)
         routesDone.add(nextRoute.path)
@@ -297,6 +296,7 @@ def HandleSingleFile(nextRoute):
             subprocess.run(["mv", GetNewUrl(nextRoute.path, for_writing=True, use_orig=True), GetNewUrl(nextRoute.path, for_writing=True)])
         with open(GetLocationOfTimestampFromURL(nextRoute.path, False), "w") as f:
             f.write(time_now)
+        print("Done.")
     except Exception as e:
         if args.verbose:
             print("Something went wrong while working on path ", nextRoute)
@@ -319,9 +319,7 @@ def GetModificationDates(path):
     global MODIFICATION_TIMES
     page_num = 1
     while True:
-        if args.verbose:
-            print("Page_num = ", page_num)
-        r = requests.get(f"{website}{path}?page={page_num}&per_page=100", auth=auth) # The limit for per_page is 100
+        r = requests.get(f"{website}{path}?page={page_num}&per_page=100", auth=auth, params=params) # The limit for per_page is 100
         if (r.status_code == 400):
             # We reached the end
             break
@@ -366,8 +364,6 @@ def SetupUpdate():
     GetModificationDates("/wp-json/wp/v2/pages")
     GetModificationDates("/wp-json/wp/v2/media")
     GetModificationDatesForEvents()
-    if args.verbose:
-        print("All modification dates: ", MODIFICATION_TIMES)
     
 def CleanupUpdate():
     if USE_FILE_LOCATION:
@@ -377,11 +373,10 @@ def CleanupUpdate():
     subprocess.run(["rm", "-r", output_dir])
     subprocess.run(["mv", "temp", output_dir])
 
-if args.update:
-    SetupUpdate()
-print("Starting to download everything")
+print("Starting the scraping")
+SetupUpdate()
+print("Downloaded all modification dates. Now downloading the pages.")
 DownloadEverything()
-if args.update:
-    CleanupUpdate()
-
+print("Finished downloading all pages. Now cleaning up")
+CleanupUpdate()
 print("Finished downloading!")
