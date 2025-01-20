@@ -3,7 +3,11 @@ import requests
 import os
 import re
 import argparse
-import time
+import traceback
+from time import sleep
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from pathlib import PurePosixPath
 from datetime import datetime, timezone
 import pytz
 import functools
@@ -35,11 +39,25 @@ class Route:
 
 routesTodo = {
     Route(args.root + "404.html", args.root + "404.html", "404"),
-    Route(args.root + "symposium", args.root + "symposium", "root point"),
-    Route(args.root, args.root, "root point")}
+    Route(args.root, args.root, "root point"),
+    Route(args.root + "restricted/documents/", args.root + "restricted/documents/", "entrance"),
+    Route(args.root + "symposium/", args.root + "symposium/", "symposium")
+    }
 routesDone = set()
 
+routesDone.add("/restricted/")
+routesDone.add("/restricted")
+routesDone.add("/restricted/documents-ugly")
+routesDone.add("/restricted/documents-ugly/")
+
 USE_FILE_LOCATION = args.offline_use
+
+session = requests.session()
+retry = Retry(connect=3, backoff_factor=0.5)
+adapter = HTTPAdapter(max_retries=retry)
+session.mount('http://', adapter)
+session.mount('https://', adapter)
+
 
 fileLocation = "file://"
 def WriteFile(location, codeBytes):
@@ -90,7 +108,8 @@ def GetLocationOfTimestampFromURL(path, use_orig):
     return f"{GetNewUrl(path, for_writing=True, use_orig=use_orig)}.time"
 
 def Download(path):
-    r = requests.get(website + path, auth = auth, params=params)
+    r = session.get(website + path, auth = auth, params=params)
+    sleep(0.05)
     if r.status_code == 404 and path == "/404.html":
         return r.content
 
@@ -159,6 +178,11 @@ def ParseLink(link, wasDownloaded = True):
     # the wp-json is temporary
     if link.startswith('http') or 'xmlrpc' in link or 'mailto' in link or ':' in link or 'wp-json' in link or "/feed" in link: # the : appears in svg urls
         return None, None
+      
+    if link.startswith("//"):
+        assert (not link.startswith("//dev2.sib-utrecht.nl"))
+        return None, None
+
     if wasDownloaded:
         return link, query
     else:
@@ -171,8 +195,11 @@ def AddRoute(route):
     if route.path not in routesDone:
         routesTodo.add(route)
 
-headRemoveReferences = re.compile("<link [^>]+//dev2.sib-utrecht.nl[^>]+>")
-linkRegex = re.compile("(href|src)(\\s*)(\\^)?=(\\s*)(\"|')(.*?)(\"|')")
+# headRemoveReferences = re.compile("<link rel=[\"'](?!stylesheet)(?!modulepreload)(?!icon)(?!apple-touch-icon)[^\"']+[\"'] [^>]+//dev2.sib-utrecht.nl[^>]+>")
+# headRemoveReferences = re.compile("<link rel=[\"'](?!stylesheet)(?!modulepreload)(?!icon)(?!apple-touch-icon)(?P<relType>[^\"']+)[\"'] [^>]+>")
+headRemoveReferences = re.compile("<link rel=[\"'](?P<relType>[^\"']+)[\"'] [^>]+>")
+linkRegex  = re.compile("(href|src)(\\s*)(?P<patternMatch>\\^)?=(\\s*)(\")(?P<url>.*?)(\")")
+linkRegex2 = re.compile("(href|src)(\\s*)(?P<patternMatch>\\^)?=(\\s*)(\')(?P<url>.*?)(\')")
 urlRegex = re.compile("url\\((\"|'|\\&\\#039\\;)?(.*?)(\"|'|\\&\\#039\\;)?\\)")
 srcsetRegex = re.compile("srcset(\\s*)=(\\s*)(\"|')(.*?)(\"|')")
 stringRegex = re.compile("\"https:\\\\?/\\\\?/dev2.sib-utrecht.nl(\\\\?/[^\"]*)\"")
@@ -180,13 +207,28 @@ stringRegex = re.compile("\"https:\\\\?/\\\\?/dev2.sib-utrecht.nl(\\\\?/[^\"]*)\
 def FindNewRoutes(code, currentPath, wasDownloaded):
     res = linkRegex.finditer(code)
     for found in res:
-        path = found.group(6)
+        path = found.group("url")
         if path == "//cdn.jsdelivr.net":
             continue
         origpath = path
         path, query = ParseLink(path, wasDownloaded)
-        if path != None:
+        if path != None and len(found.group("patternMatch") or "") == 0:
+            path = str(PurePosixPath(currentPath) / path)
+            
             AddRoute(Route(path, origpath, currentPath, query))
+    
+    res = linkRegex2.finditer(code)
+    for found in res:
+        path = found.group("url")
+        if path == "//cdn.jsdelivr.net":
+            continue
+        origpath = path
+        path, query = ParseLink(path, wasDownloaded)
+        if path != None and len(found.group("patternMatch") or "") == 0:
+            path = str(PurePosixPath(currentPath) / path)
+            
+            AddRoute(Route(path, origpath, currentPath, query))
+
 
     res = urlRegex.finditer(code)
     for found in res:
@@ -194,6 +236,8 @@ def FindNewRoutes(code, currentPath, wasDownloaded):
         origpath = path
         path, query = ParseLink(path, wasDownloaded)
         if path != None:
+            path = str(PurePosixPath(currentPath) / path)
+
             AddRoute(Route(path, origpath, currentPath, query))
 
     res = srcsetRegex.finditer(code)
@@ -201,9 +245,13 @@ def FindNewRoutes(code, currentPath, wasDownloaded):
         srcs = found.group(4).split(',')
         for link in srcs:
             path = link.split()[0] # Important: same as below
-        path, query = ParseLink(path, wasDownloaded)
-        if path != None:
-            AddRoute(Route(path, origpath, currentPath, query))
+            origpath = path
+            path, query = ParseLink(path, wasDownloaded)
+            if path != None:
+                path = str(PurePosixPath(currentPath) / path)
+
+                #routesTodo.add(Route(path, origpath, currentPath))
+                AddRoute(Route(path, origpath, currentPath, query))
 
     res = stringRegex.finditer(code)
     for found in res:
@@ -214,11 +262,16 @@ def FindNewRoutes(code, currentPath, wasDownloaded):
         origpath = path
         path, query = ParseLink(path,wasDownloaded)
         if path != None:
+            path = str(PurePosixPath(currentPath) / path)
+
             AddRoute(Route(path, origpath, currentPath, query))
 
-def SubsituteRoutes(code, currentPath):
+removedRelTypes = set()
+
+def SubstituteRoutes(code, currentPath):
     def subNormalLink(match):
-        path, query = ParseLink(match.group(6))
+        path, query = ParseLink(match.group("url"))
+        # print(f"SubNormalLink, full={match.group(6)}, path={path}, query={query}")
 
         if path == None:
             return match.group()
@@ -246,11 +299,13 @@ def SubsituteRoutes(code, currentPath):
             if len(split) == 1:
                 # This can apparently happen in a carousel as a srcset without the second part for some reason
                 split += " "
+
             path, query = ParseLink(split[0])
             if path == None:
-                output.append(src + ' ' + split[1])
+                output.append(src + ' ' + ' '.join(split[1:]))
                 continue
-            output.append(GetNewUrl(path, use_orig=True) + query + ' ' + split[1])
+
+            output.append(GetNewUrl(path, use_orig=True) + query + ' ' + ' '.join(split[1:]))
         return "srcset=" + match.group(3) + ','.join(output) + match.group(5)
     
     def subString(match):
@@ -260,15 +315,45 @@ def SubsituteRoutes(code, currentPath):
         return "\"" + GetNewUrl(path, use_orig=True) + query + "\""
 
     code = linkRegex.sub(subNormalLink, code)
+    code = linkRegex2.sub(subNormalLink, code)
     code = urlRegex.sub(subUrlLink, code)
     code = srcsetRegex.sub(subSrcset, code)
     code = stringRegex.sub(subString, code)
-    code = headRemoveReferences.sub("", code)
+
+    def onLinkRel(match):
+        relType = match.group("relType")
+        removedRelTypes.add(relType)
+
+        allowedRelTypes = {"stylesheet", "modulepreload", "icon",
+                           "apple-touch-icon", "dns-prefetch", "canonical"}
+        disallowedRelTypes = {'https://api.w.org/', 'dns-prefetch', 'EditURI', 'alternate'}
+        if relType in allowedRelTypes:
+            return match.group()
+        
+        if relType not in disallowedRelTypes:
+            print(f"Add this rel type to allowedRelTypes or disallowedRelTypes: {relType}")
+            raise Exception(f"Add this rel type to allowedRelTypes or disallowedRelTypes: {relType}")
+
+        # if relType == None:
+        #     return match.group()
+        return ""
+
+    # code = headRemoveReferences.sub("", code)
+    code = headRemoveReferences.sub(onLinkRel, code)
     return code
 
 def CheckCodeForLinks(code, currentPath):
+    removeSecret = re.compile("/restricted/secret-[^/?#]+")
+    code = removeSecret.sub("/restricted", code)
+
     FindNewRoutes(code, currentPath)
-    return SubsituteRoutes(code, currentPath)
+    code = SubstituteRoutes(code, currentPath)
+
+    removeWorkWebsite = re.compile("dev[a-zA-Z0-9_-]{1,20}.sib-?utrecht.nl")
+    code = removeWorkWebsite.sub("www.sib-utrecht.nl", code)
+
+    return code
+
 
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
@@ -279,17 +364,28 @@ def HandleSingleFile(nextRoute):
     try:
         (fileBytes, wasDownloaded) = Get(nextRoute)
         routesDone.add(nextRoute.path)
+        assert ("restricted/secret-" not in nextRoute.path)
         try:
             if ('.js' not in nextRoute.path):
                 # we just assume all pages are utf-8 encoded
                 decoded = fileBytes.decode('utf-8')
+
+                removeSecret = re.compile("/restricted/secret-[^/?#]+")
+                decoded = removeSecret.sub("/restricted", decoded)
+
                 FindNewRoutes(decoded, nextRoute.path, wasDownloaded)
                 if wasDownloaded:
-                    fileBytes = SubsituteRoutes(decoded, nextRoute.path).encode('utf-8')
+                    decoded = SubstituteRoutes(decoded, nextRoute.path)
+
+                    removeWorkWebsite = re.compile("dev[a-zA-Z0-9_-]{1,20}.sib-?utrecht.nl")
+                    decoded = removeWorkWebsite.sub("www.sib-utrecht.nl", decoded)
+
+                    fileBytes = decoded.encode('utf-8')
         except UnicodeError as e:
             pass
         if wasDownloaded:
             WriteFile(GetNewUrl(nextRoute.path, for_writing=True), fileBytes)
+         
         else:
             dest = GetNewUrl(nextRoute.path, for_writing=True)
             subprocess.run(["mkdir", "-p", os.path.split(dest)[0]])
@@ -301,6 +397,7 @@ def HandleSingleFile(nextRoute):
         if args.verbose:
             print("Something went wrong while working on path ", nextRoute)
             print(e)
+            print(traceback.format_exc())
             exit(-1)
         else:
             print("\nWARNING: something went wrong while working on path ", nextRoute)
@@ -380,3 +477,5 @@ DownloadEverything()
 print("Finished downloading all pages. Now cleaning up")
 CleanupUpdate()
 print("Finished downloading!")
+
+print(f"Removed rel types: {removedRelTypes}")
