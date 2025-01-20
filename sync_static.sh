@@ -1,8 +1,7 @@
 #!/bin/sh
+set -e
 
-# rm dev2.sib-utrecht.nl/wp-login* 2>/dev/null
-# rm dev2.sib-utrecht.nl/index.html?p=* 2>/dev/null
-# rm -r dev2.sib-utrecht.nl/author 2>/dev/null
+rclone config create sib-utrecht s3 provider=AWS region=eu-central-1 location_constraint=eu-central-1 storage_class=INTELLIGENT_TIERING env_auth=true
+rclone sync static \
+    sib-utrecht:sib-utrecht-www1/sib-utrecht-www/live --checksum -v
 
-aws-vault exec vincent-laptop2-nixos-sib --no-session -- rclone sync static \
-    sib-aws:sib-utrecht-www1/sib-utrecht-www/live --checksum -v
