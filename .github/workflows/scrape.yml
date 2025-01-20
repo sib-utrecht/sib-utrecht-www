@@ -44,6 +44,7 @@ jobs:
     - name: Sync static files with AWS
       run: ./sync_static.sh
       shell: bash
+      working-directory: site
       env:
         AWS_ACCESS_KEY_ID:
           ${{ vars.AWS_ACCESS_KEY_ID }}
