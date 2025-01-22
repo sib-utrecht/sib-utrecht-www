@@ -35,7 +35,7 @@ class Route:
         self.query = query
     
     def __str__(self):
-        return "'" + self.path + self.query + "'" + " (from '" + self.origpath + "'), linked from '" + self.linkedfrom + "'"
+        return "'" + self.path  + '['+ self.query+']' + "'" + " (from '" + self.origpath + "'), linked from '" + self.linkedfrom + "'"
 
 routesTodo = {
     Route(args.root + "404.html", args.root + "404.html", "404"),
@@ -106,6 +106,8 @@ def GetUrlFromFileLocation(filepath):
         
 def GetLocationOfTimestampFromURL(path, use_orig):
     return f"{GetNewUrl(path, for_writing=True, use_orig=use_orig)}.time"
+def GetLocationOfQueryFromURL(path, use_orig):
+    return f"{GetNewUrl(path, for_writing=True, use_orig=use_orig)}.query"
 
 def Download(path):
     r = session.get(website + path, auth = auth, params=params)
@@ -117,16 +119,36 @@ def Download(path):
     r.raise_for_status()
     return r.content
 
+# Returned: is the query different from last time?
+def ReadAndUpdateQueryFile(route):
+    os.makedirs(os.path.dirname(GetLocationOfQueryFromURL(route.path, use_orig=False)), exist_ok=True)
+    try:
+        with open(GetLocationOfQueryFromURL(route.path, use_orig=True), "r") as f:
+            contents = f.read()
+        if contents != route.query:
+            with open(GetLocationOfQueryFromURL(route.path, use_orig=False), "w") as f:
+                f.write(route.query)
+            return True
+        subprocess.run(["mv", GetLocationOfQueryFromURL(route.path, use_orig=True), GetLocationOfQueryFromURL(route.path,use_orig=False)])
+        return False
+    except IOError as e:
+        print(f"WARNING: Query file for route {route} did not yet exist")
+        with open(GetLocationOfQueryFromURL(route.path, use_orig=False), "w") as f:
+            f.write(route.query)
+            return True
+
+
 def ShouldRedownload(route, time):
+    # assert not(route.query != "" and not(route.path.endswith(".js") or route.path.endswith('.css')))
     if route.path == "/404.html":
         return False
     if route.path.startswith("/restricted"):
         return False
     if route.path.endswith(".woff2"):
         return False
-    # Todo: should check that the version queried (route.query) is the same as the only previously downloaded
     if route.path.endswith(".js") or route.path.endswith(".css"):
-        return False
+        return ReadAndUpdateQueryFile(route)
+
     path = route.path
     try:
         if time >= MODIFICATION_TIMES[path]:
@@ -390,18 +412,21 @@ def HandleSingleFile(nextRoute):
             dest = GetNewUrl(nextRoute.path, for_writing=True)
             subprocess.run(["mkdir", "-p", os.path.split(dest)[0]])
             subprocess.run(["mv", GetNewUrl(nextRoute.path, for_writing=True, use_orig=True), GetNewUrl(nextRoute.path, for_writing=True)])
-        with open(GetLocationOfTimestampFromURL(nextRoute.path, False), "w") as f:
-            f.write(time_now)
+        if wasDownloaded:
+            with open(GetLocationOfTimestampFromURL(nextRoute.path, False), "w") as f:
+                f.write(time_now)
+        else:
+            subprocess.run(["mv", GetLocationOfTimestampFromURL(nextRoute.path, use_orig=True), GetLocationOfTimestampFromURL(nextRoute.path, use_orig=False)])
         print("Done.")
     except Exception as e:
         if args.verbose:
             print("Something went wrong while working on path ", nextRoute)
-            print(e)
+            print(repr(e))
             print(traceback.format_exc())
             exit(-1)
         else:
             print("\nWARNING: something went wrong while working on path ", nextRoute)
-            print(e)
+            print(repr(e))
 
 time_now = datetime.now(timezone.utc).strftime(TIME_FORMAT)
 def DownloadEverything():
