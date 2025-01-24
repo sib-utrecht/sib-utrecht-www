@@ -468,7 +468,7 @@ def GetModificationDates(path):
                 if currentpath.endswith('/') and len(currentpath)> 1:
                     currentpath = currentpath[:-1]
                 
-                if "--trigger-full-flush--" in currentpath:
+                if "trigger-full-flush" in currentpath:
                     full_flush = True
                 MODIFICATION_TIMES[currentpath] = modified_time
         
