@@ -39,9 +39,10 @@ class Route:
 
 routesTodo = {
     Route(args.root + "404.html", args.root + "404.html", "404"),
-    Route(args.root, args.root, "root point"),
+    Route(args.root, args.root, "root point", query=f"?cache={datetime.now().timestamp()}"),
     Route(args.root + "restricted/documents/", args.root + "restricted/documents/", "entrance"),
-    Route(args.root + "symposium/", args.root + "symposium/", "symposium")
+    Route(args.root + "symposium/", args.root + "symposium/", "symposium"),
+    Route(args.root + "activities/", args.root + "activities/", "symposium", f"?cache={datetime.now().timestamp()}")
     }
 routesDone = set()
 
@@ -440,6 +441,7 @@ MODIFICATION_TIMES = {}
 def GetModificationDates(path):
     global MODIFICATION_TIMES
     page_num = 1
+    full_flush = False
     while True:
         r = requests.get(f"{website}{path}?page={page_num}&per_page=100", auth=auth, params=params) # The limit for per_page is 100
         if (r.status_code == 400):
@@ -465,9 +467,15 @@ def GetModificationDates(path):
                 currentpath = link[len(website):]
                 if currentpath.endswith('/') and len(currentpath)> 1:
                     currentpath = currentpath[:-1]
+                
+                if "--trigger-full-flush--" in currentpath:
+                    full_flush = True
                 MODIFICATION_TIMES[currentpath] = modified_time
         
         page_num += 1
+
+    if full_flush:
+        MODIFICATION_TIMES.clear()
 
 
 def GetModificationDatesForEvents():
