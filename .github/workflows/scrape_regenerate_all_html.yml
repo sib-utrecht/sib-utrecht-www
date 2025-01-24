@@ -1,9 +1,6 @@
-name: Scrape the site
+name: Scrape the site, regenerating all html files
 
 on:
-  push:
-    branches:
-      - 'site'
   workflow_dispatch:
 jobs:
   update:
@@ -33,10 +30,7 @@ jobs:
     - name: Download pages
       run: |
         cd site
-        rm static/index.html || true
-        rm static/test-nonexistent/index.html || true
-        rm static/activities/index.html || true
-        rm static/meet-sib/index.html || true
+        find static/ -maxdepth 50 -type f -name "*.html" -delete
         python cache.py
     - name: Commit and Push
       run: |

@@ -2,7 +2,6 @@
 .aws-sam/build.toml
 .aws-sam/sync.toml
 cache
-static/
 static-2025-01-05_0025/
 __pycache__/
 launch.json
