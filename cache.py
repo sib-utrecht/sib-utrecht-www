@@ -381,9 +381,6 @@ def CheckCodeForLinks(code, currentPath):
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
 def HandleSingleFile(nextRoute):
-    if nextRoute.path == "/restricted/documents" or nextRoute.path == "/restricted" or nextRoute.path == "/restricted/":
-        # For now just ignore this, because these paths are relative
-        return
     try:
         (fileBytes, wasDownloaded) = Get(nextRoute)
         routesDone.add(nextRoute.path)
