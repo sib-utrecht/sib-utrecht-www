@@ -1,0 +1,59 @@
+name: Scrape the site, regenerating all html files
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 5 * * 0,1,2,3,4,5,6'
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: scrape-group
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        path: 'site'
+        ref: 'site'
+    - name: Download python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+    - name: Configure
+      run: |
+        python -m pip install --upgrade pip requests pytz awscli
+        git config --global user.email "bot@sib-utrecht.nl"
+        git config --global user.name "update-bot"
+    - name: Install rclone
+      run: |
+        sudo curl https://rclone.org/install.sh | sudo bash
+        
+    - name: Download pages
+      run: |
+        cd site
+        find static/ -maxdepth 50 -type f -name "*.html" -delete
+        python cache.py
+    - name: Commit and Push
+      run: |
+        cd site
+        git add .
+        git commit -m "Automatically scraped site"
+        git pull
+        git push
+
+    - name: Sync static files with AWS
+      shell: bash
+      working-directory: site
+      env:
+        AWS_ACCESS_KEY_ID:
+          ${{ vars.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY:
+          ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_DEFAULT_REGION: eu-central-1
+
+      run: |
+        ./sync_static.sh
+        aws cloudfront create-invalidation --distribution-id E6BJ2KXM7LB8C --paths "/*"
+      
