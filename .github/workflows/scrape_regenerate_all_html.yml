@@ -35,6 +35,12 @@ jobs:
         cd site
         find static/ -maxdepth 50 -type f -name "*.html" -delete
         python cache.py
+      env:
+        AUTH_BASIC_USER:
+          ${{ vars.AUTH_BASIC_USER }}
+        AUTH_BASIC_PASSWORD:
+          ${{ secrets.AUTH_BASIC_PASSWORD }}
+        AWS_DEFAULT_REGION: eu-central-1
     - name: Commit and Push
       run: |
         cd site
