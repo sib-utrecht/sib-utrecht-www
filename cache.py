@@ -56,6 +56,8 @@ routesDone.add("/restricted/")
 routesDone.add("/restricted")
 routesDone.add("/restricted/documents-ugly")
 routesDone.add("/restricted/documents-ugly/")
+routesDone.add("/signout")
+routesDone.add("/signout/")
 
 USE_FILE_LOCATION = args.offline_use
 
