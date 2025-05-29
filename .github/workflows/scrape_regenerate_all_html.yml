@@ -15,7 +15,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        repository: 'sib-utrecht-www-static'
+        repository: 'sib-utrecht/sib-utrecht-www-static'
         path: 'static'
     - uses: actions/checkout@v4
       with:
