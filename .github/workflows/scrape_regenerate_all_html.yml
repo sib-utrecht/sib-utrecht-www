@@ -15,8 +15,11 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        path: 'site'
-        ref: 'site'
+        repository: 'sib-utrecht-www-static'
+        path: 'static'
+    - uses: actions/checkout@v4
+      with:
+        path: 'config'
     - name: Download python
       uses: actions/setup-python@v5
       with:
@@ -32,9 +35,8 @@ jobs:
         
     - name: Download pages
       run: |
-        cd site
         find static/ -maxdepth 50 -type f -name "*.html" -delete
-        python cache.py
+        python config/cache.py
       env:
         AUTH_BASIC_USER:
           ${{ vars.AUTH_BASIC_USER }}
@@ -43,7 +45,7 @@ jobs:
         AWS_DEFAULT_REGION: eu-central-1
     - name: Commit and Push
       run: |
-        cd site
+        cd static
         git add .
         git commit -m "Automatically scraped site"
         git pull
@@ -51,7 +53,6 @@ jobs:
 
     - name: Sync static files with AWS
       shell: bash
-      working-directory: site
       env:
         AWS_ACCESS_KEY_ID:
           ${{ vars.AWS_ACCESS_KEY_ID }}
@@ -60,6 +61,6 @@ jobs:
         AWS_DEFAULT_REGION: eu-central-1
 
       run: |
-        ./sync_static.sh
+        config/sync_static.sh
         aws cloudfront create-invalidation --distribution-id E6BJ2KXM7LB8C --paths "/*"
       
