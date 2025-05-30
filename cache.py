@@ -235,6 +235,9 @@ def ShouldRedownload(route, time):
 def Get(route):
     originalcontent = ""
     specialCase = False
+    print(
+        f"filepath for route {route.path}: {GetNewUrl(route.path, for_writing=True, use_orig=True)}"
+    )
     if os.path.exists(GetNewUrl(route.path, for_writing=True, use_orig=True)):
         with open(GetLocationOfTimestampFromURL(route.path, use_orig=True)) as f:
             time = datetime.fromisoformat(f.read()).replace(tzinfo=timezone.utc)
