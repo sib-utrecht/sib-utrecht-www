@@ -11,6 +11,9 @@ from pathlib import PurePosixPath
 from datetime import datetime, timezone
 import pytz
 import functools
+from dotenv import load_dotenv
+
+load_dotenv()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--verbose", help="Exit on failure", action="store_true")
@@ -18,13 +21,16 @@ parser.add_argument("--offline-use", help="Create a static site for offline use 
 parser.add_argument("--root", help="Starting point", default='/')
 args = parser.parse_args()
 
-website = "https://dev2.sib-utrecht.nl"
+website = "https://edit-unauth.sib-utrecht.nl"
+alternate_website = "https://edit.sib-utrecht.nl"
+
 OUTPUT_DIR_OFFLINE = "cache"
 OUTPUT_DIR_HTTP = "static"
 OUTPUT_DIR = OUTPUT_DIR_OFFLINE if args.offline_use else OUTPUT_DIR_HTTP
 
 # The site should be open soon so it doesn't matter that the credentials are store in this file for now
-auth = ('dev', 'ictcie')
+# auth = ('dev', 'ictcie')
+auth = (os.getenv("AUTH_BASIC_USER"), os.getenv("AUTH_BASIC_PASSWORD"))
 params = {"noauth": "true"}
 
 class Route:
@@ -50,6 +56,8 @@ routesDone.add("/restricted/")
 routesDone.add("/restricted")
 routesDone.add("/restricted/documents-ugly")
 routesDone.add("/restricted/documents-ugly/")
+routesDone.add("/signout")
+routesDone.add("/signout/")
 
 USE_FILE_LOCATION = args.offline_use
 
@@ -181,6 +189,10 @@ def ParseLink(link, wasDownloaded = True):
     if link.startswith(website):
         changed = True
         link = link[len(website):]
+    if link.startswith(alternate_website):
+        changed = True
+        link = link[len(alternate_website):]
+
     loc = link.find('#')
     if loc != -1:
         changed = True
@@ -225,7 +237,29 @@ linkRegex  = re.compile("(href|src)(\\s*)(?P<patternMatch>\\^)?=(\\s*)(\")(?P<ur
 linkRegex2 = re.compile("(href|src)(\\s*)(?P<patternMatch>\\^)?=(\\s*)(\')(?P<url>.*?)(\')")
 urlRegex = re.compile("url\\((\"|'|\\&\\#039\\;)?(.*?)(\"|'|\\&\\#039\\;)?\\)")
 srcsetRegex = re.compile("srcset(\\s*)=(\\s*)(\"|')(.*?)(\"|')")
-stringRegex = re.compile("\"https:\\\\?/\\\\?/dev2.sib-utrecht.nl(\\\\?/[^\"]*)\"")
+stringRegex = re.compile("\"https:\\\\?/\\\\?/edit.sib-utrecht.nl(\\\\?/[^\"]*)\"")
+
+def combinePath(currentPath, path) -> str:
+    p = PurePosixPath(currentPath) / path
+    parts = list(p.parts)
+
+    normalizedPath = PurePosixPath(p.parts[0])
+
+    # Prevent shenanigans like
+    # /restricted/documents/archive/../archive/../archive/../Agenda_2023-06_Extra.pdf
+
+    for part in parts[1:]:
+        if part == '..':
+            normalizedPath = normalizedPath.parent
+            continue
+
+        if part == '.':
+            continue
+
+        normalizedPath = normalizedPath / part
+
+    return str(normalizedPath)
+    # return str( / path))
 
 def FindNewRoutes(code, currentPath, wasDownloaded):
     res = linkRegex.finditer(code)
@@ -236,7 +270,7 @@ def FindNewRoutes(code, currentPath, wasDownloaded):
         origpath = path
         path, query = ParseLink(path, wasDownloaded)
         if path != None and len(found.group("patternMatch") or "") == 0:
-            path = str(PurePosixPath(currentPath) / path)
+            path = combinePath(currentPath, path)
             
             AddRoute(Route(path, origpath, currentPath, query))
     
@@ -248,7 +282,7 @@ def FindNewRoutes(code, currentPath, wasDownloaded):
         origpath = path
         path, query = ParseLink(path, wasDownloaded)
         if path != None and len(found.group("patternMatch") or "") == 0:
-            path = str(PurePosixPath(currentPath) / path)
+            path = combinePath(currentPath, path)
             
             AddRoute(Route(path, origpath, currentPath, query))
 
@@ -259,7 +293,7 @@ def FindNewRoutes(code, currentPath, wasDownloaded):
         origpath = path
         path, query = ParseLink(path, wasDownloaded)
         if path != None:
-            path = str(PurePosixPath(currentPath) / path)
+            path = combinePath(currentPath, path)
 
             AddRoute(Route(path, origpath, currentPath, query))
 
@@ -271,7 +305,7 @@ def FindNewRoutes(code, currentPath, wasDownloaded):
             origpath = path
             path, query = ParseLink(path, wasDownloaded)
             if path != None:
-                path = str(PurePosixPath(currentPath) / path)
+                path = combinePath(currentPath, path)
 
                 #routesTodo.add(Route(path, origpath, currentPath))
                 AddRoute(Route(path, origpath, currentPath, query))
@@ -285,7 +319,7 @@ def FindNewRoutes(code, currentPath, wasDownloaded):
         origpath = path
         path, query = ParseLink(path,wasDownloaded)
         if path != None:
-            path = str(PurePosixPath(currentPath) / path)
+            path = combinePath(currentPath, path)
 
             AddRoute(Route(path, origpath, currentPath, query))
 
@@ -372,7 +406,7 @@ def CheckCodeForLinks(code, currentPath):
     FindNewRoutes(code, currentPath)
     code = SubstituteRoutes(code, currentPath)
 
-    removeWorkWebsite = re.compile("dev[a-zA-Z0-9_-]{1,20}.sib-?utrecht.nl")
+    removeWorkWebsite = re.compile("(dev[a-zA-Z0-9_-]{1,20}|edit-(unauth)?).sib-?utrecht.nl")
     code = removeWorkWebsite.sub("www.sib-utrecht.nl", code)
 
     return code
@@ -381,9 +415,6 @@ def CheckCodeForLinks(code, currentPath):
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
 def HandleSingleFile(nextRoute):
-    if nextRoute.path == "/restricted/documents" or nextRoute.path == "/restricted" or nextRoute.path == "/restricted/":
-        # For now just ignore this, because these paths are relative
-        return
     try:
         (fileBytes, wasDownloaded) = Get(nextRoute)
         routesDone.add(nextRoute.path)
@@ -400,7 +431,7 @@ def HandleSingleFile(nextRoute):
                 if wasDownloaded:
                     decoded = SubstituteRoutes(decoded, nextRoute.path)
 
-                    removeWorkWebsite = re.compile("dev[a-zA-Z0-9_-]{1,20}.sib-?utrecht.nl")
+                    removeWorkWebsite = re.compile("(dev[a-zA-Z0-9_-]{1,20}|edit|edit-unauth).sib-?utrecht.nl")
                     decoded = removeWorkWebsite.sub("www.sib-utrecht.nl", decoded)
 
                     fileBytes = decoded.encode('utf-8')
@@ -458,13 +489,13 @@ def GetModificationDates(path):
             except:
                 links = [page['link']]
             for link in links:
-                if not link.startswith(website):
+                if not link.startswith(website) and not link.startswith(alternate_website):
                     if args.verbose:
                         raise Exception("Error: linked page '" + link + "' is not a SIB-page!")
                     else:
                         print(f"WARNING: linked page '{link}' is not a SIB page")
                         continue
-                currentpath = link[len(website):]
+                currentpath = link[len(website):] if link.startswith(website) else link[len(alternate_website):]
                 if currentpath.endswith('/') and len(currentpath)> 1:
                     currentpath = currentpath[:-1]
                 
