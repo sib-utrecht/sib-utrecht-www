@@ -40,6 +40,9 @@ params = {"noauth": "true"}
 # If they differ then the navbar changed and all html need to be downloaded again
 firstUptoDateHtmlFile = True
 htmlsDeleted = False
+
+# These files change regularly because of activities so we always force redownload them
+# It was originally handled by deleting them beforehand but we do this so we can compare the new file with the original to prevent updating the timestamp unnecessarily
 alwaysRedownload = ["/", "/activities", "/meet-sib"]
 
 

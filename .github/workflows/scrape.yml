@@ -36,13 +36,8 @@ jobs:
         sudo curl https://rclone.org/install.sh | sudo bash
         
     - name: Download pages
-      # These files change regularly because of activities so we always force redownload them 
       run: |
         cd site
-        rm static/index.html || true
-        rm static/test-nonexistent/index.html || true
-        rm static/activities/index.html || true
-        rm static/meet-sib/index.html || true
         python ../config/cache.py
       env:
         AUTH_BASIC_USER:
