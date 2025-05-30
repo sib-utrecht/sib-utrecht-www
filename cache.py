@@ -9,8 +9,6 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from pathlib import PurePosixPath
 from datetime import datetime, timezone
-import pytz
-import functools
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -36,6 +34,12 @@ OUTPUT_DIR = OUTPUT_DIR_OFFLINE if args.offline_use else OUTPUT_DIR_HTTP
 # auth = ('dev', 'ictcie')
 auth = (os.getenv("AUTH_BASIC_USER"), os.getenv("AUTH_BASIC_PASSWORD"))
 params = {"noauth": "true"}
+
+# Have we seen a html file that does not have to be updated according to the filestamp
+# This file gets downloaded anyways and compared with the original file
+# If they differ then the navbar changed and all html need to be downloaded again
+firstUptoDateHtmlFile = True
+htmlsDeleted = False
 
 
 class Route:
@@ -67,14 +71,14 @@ routesTodo = {
         args.root, args.root, "root point", query=f"?cache={datetime.now().timestamp()}"
     ),
     Route(
-        args.root + "restricted/documents/",
-        args.root + "restricted/documents/",
+        args.root + "restricted/documents",
+        args.root + "restricted/documents",
         "entrance",
     ),
     Route(args.root + "symposium/", args.root + "symposium/", "symposium"),
     Route(
-        args.root + "activities/",
-        args.root + "activities/",
+        args.root + "activities",
+        args.root + "activities",
         "symposium",
         f"?cache={datetime.now().timestamp()}",
     ),
@@ -161,7 +165,12 @@ def GetLocationOfQueryFromURL(path, use_orig):
     return f"{GetNewUrl(path, for_writing=True, use_orig=use_orig)}.query"
 
 
+numdownloaded = 0
+
+
 def Download(path):
+    global numdownloaded
+    numdownloaded += 1
     r = session.get(website + path, auth=auth, params=params)
     sleep(0.05)
     if r.status_code == 404 and path == "/404.html":
@@ -193,7 +202,7 @@ def ReadAndUpdateQueryFile(route):
             ]
         )
         return False
-    except IOError as e:
+    except IOError:
         print(f"WARNING: Query file for route {route} did not yet exist")
         with open(GetLocationOfQueryFromURL(route.path, use_orig=False), "w") as f:
             f.write(route.query)
@@ -222,18 +231,35 @@ def ShouldRedownload(route, time):
     return True
 
 
-# Return (content, wasDownloaded, originalcontent) (originnalcontent only if it was downloaded and it already existed)
+# Return (content, wasDownloaded, originalcontent, specialcase) (originnalcontent only if it was downloaded and it already existed)
 def Get(route):
     originalcontent = ""
+    specialCase = False
     if os.path.exists(GetNewUrl(route.path, for_writing=True, use_orig=True)):
         with open(GetLocationOfTimestampFromURL(route.path, use_orig=True)) as f:
             time = datetime.fromisoformat(f.read()).replace(tzinfo=timezone.utc)
-        if not ShouldRedownload(route, time):
+        shouldRedownload = ShouldRedownload(route, time)
+
+        global firstUptoDateHtmlFile
+        if (
+            not shouldRedownload
+            and (
+                "." not in route.path or route.path.endswith(".html")
+            )  # is it an html file?, 404.html ends in html but most others don't
+            and firstUptoDateHtmlFile
+        ):
+            specialCase = True
+            firstUptoDateHtmlFile = False
+            shouldRedownload = True
+            print(
+                f"First up to date html file: {route.path}, checking for changes to navbar"
+            )
+        if not shouldRedownload:
             with open(
                 GetNewUrl(route.path, for_writing=True, use_orig=True), "rb"
             ) as f:
                 print(f"Moving file {route.path} from previous download...", end="")
-                return (f.read(), False, {})
+                return (f.read(), False, {}, False)
         else:
             print(
                 f"File {route.path} is invalidated and will be redownloaded...", end=""
@@ -242,12 +268,16 @@ def Get(route):
                 GetNewUrl(route.path, for_writing=True, use_orig=True), "rb"
             ) as f:
                 originalcontent = f.read()
+                print(
+                    f"original content was {GetNewUrl(route.path, for_writing=True, use_orig=True)}"
+                )
     else:
         print(
-            f"File {route.path} did not exist in previous download: downloading...",
+            f"File {route.path} did not exist in previous download or was invalidated by update to navbar/theme: downloading...",
             end="",
         )
-    return (Download(route.path), True, originalcontent)
+    newfile = Download(route.path)
+    return (newfile, True, originalcontent, specialCase)
 
 
 def ParseLink(link, wasDownloaded=True):
@@ -353,7 +383,7 @@ def FindNewRoutes(code, currentPath, wasDownloaded):
             continue
         origpath = path
         path, query = ParseLink(path, wasDownloaded)
-        if path != None and len(found.group("patternMatch") or "") == 0:
+        if path is not None and len(found.group("patternMatch") or "") == 0:
             path = combinePath(currentPath, path)
 
             AddRoute(Route(path, origpath, currentPath, query))
@@ -365,7 +395,7 @@ def FindNewRoutes(code, currentPath, wasDownloaded):
             continue
         origpath = path
         path, query = ParseLink(path, wasDownloaded)
-        if path != None and len(found.group("patternMatch") or "") == 0:
+        if path is not None and len(found.group("patternMatch") or "") == 0:
             path = combinePath(currentPath, path)
 
             AddRoute(Route(path, origpath, currentPath, query))
@@ -375,7 +405,7 @@ def FindNewRoutes(code, currentPath, wasDownloaded):
         path = found.group(2)
         origpath = path
         path, query = ParseLink(path, wasDownloaded)
-        if path != None:
+        if path is not None:
             path = combinePath(currentPath, path)
 
             AddRoute(Route(path, origpath, currentPath, query))
@@ -387,7 +417,7 @@ def FindNewRoutes(code, currentPath, wasDownloaded):
             path = link.split()[0]  # Important: same as below
             origpath = path
             path, query = ParseLink(path, wasDownloaded)
-            if path != None:
+            if path is not None:
                 path = combinePath(currentPath, path)
 
                 # routesTodo.add(Route(path, origpath, currentPath))
@@ -401,7 +431,7 @@ def FindNewRoutes(code, currentPath, wasDownloaded):
 
         origpath = path
         path, query = ParseLink(path, wasDownloaded)
-        if path != None:
+        if path is not None:
             path = combinePath(currentPath, path)
 
             AddRoute(Route(path, origpath, currentPath, query))
@@ -415,9 +445,9 @@ def SubstituteRoutes(code, currentPath):
         path, query = ParseLink(match.group("url"))
         # print(f"SubNormalLink, full={match.group(6)}, path={path}, query={query}")
 
-        if path == None:
+        if path is None:
             return match.group()
-        if match.group(3) == None:
+        if match.group(3) is None:
             appendix = "/index.html"
             caret = ""
         else:
@@ -437,10 +467,10 @@ def SubstituteRoutes(code, currentPath):
 
     def subUrlLink(match):
         path, query = ParseLink(match.group(2))
-        if path == None:
+        if path is None:
             return match.group()
         closingDelimeter = match.group(1)
-        if closingDelimeter == None:
+        if closingDelimeter is None:
             closingDelimeter = ""
         return (
             "url("
@@ -461,7 +491,7 @@ def SubstituteRoutes(code, currentPath):
                 split += " "
 
             path, query = ParseLink(split[0])
-            if path == None:
+            if path is None:
                 output.append(src + " " + " ".join(split[1:]))
                 continue
 
@@ -472,7 +502,7 @@ def SubstituteRoutes(code, currentPath):
 
     def subString(match):
         path, query = ParseLink(match.group(1))
-        if path == None:
+        if path is None:
             return match.group()
         return '"' + GetNewUrl(path, use_orig=True) + query + '"'
 
@@ -540,7 +570,7 @@ TIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
 def HandleSingleFile(nextRoute):
     try:
-        (fileBytes, wasDownloaded, originalcontent) = Get(nextRoute)
+        (fileBytes, wasDownloaded, originalcontent, specialCase) = Get(nextRoute)
         routesDone.add(nextRoute.path)
         assert "restricted/secret-" not in nextRoute.path
         try:
@@ -561,7 +591,37 @@ def HandleSingleFile(nextRoute):
                     decoded = removeWorkWebsite.sub("www.sib-utrecht.nl", decoded)
 
                     fileBytes = decoded.encode("utf-8")
-        except UnicodeError as e:
+                    if specialCase:
+                        if specialCase:
+                            if originalcontent != fileBytes:
+                                # with open("orig.html", "wb") as f:
+                                #     f.write(originalcontent)
+                                # with open("new.html", "wb") as f:
+                                #     f.write(fileBytes)
+                                print(
+                                    "Html file is different: navbar/theme changed. Now deleting all html files"
+                                )
+                                subprocess.run(
+                                    [
+                                        "find",
+                                        "static/",
+                                        "-maxdepth",
+                                        "50",
+                                        "-type",
+                                        "f",
+                                        "-name",
+                                        "*.html",
+                                        "-delete",
+                                    ]
+                                )
+                                global htmlsDeleted
+                                htmlsDeleted = True
+                            else:
+                                print(
+                                    "HTML file is not different: navbar/theme did not change"
+                                )
+
+        except UnicodeError:
             pass
         if wasDownloaded:
             WriteFile(GetNewUrl(nextRoute.path, for_writing=True), fileBytes)
@@ -615,7 +675,6 @@ MODIFICATION_TIMES = {}
 def GetModificationDates(path):
     global MODIFICATION_TIMES
     page_num = 1
-    full_flush = False
     while True:
         r = requests.get(
             f"{website}{path}?page={page_num}&per_page=100", auth=auth, params=params
@@ -654,19 +713,14 @@ def GetModificationDates(path):
                 if currentpath.endswith("/") and len(currentpath) > 1:
                     currentpath = currentpath[:-1]
 
-                if "trigger-full-flush" in currentpath:
-                    full_flush = True
                 MODIFICATION_TIMES[currentpath] = modified_time
 
         page_num += 1
 
-    if full_flush:
-        MODIFICATION_TIMES.clear()
-
 
 def GetModificationDatesForEvents():
     global MODIFICATION_TIMES
-    r = requests.get(f"https://api.sib-utrecht.nl/v2/events")
+    r = requests.get("https://api.sib-utrecht.nl/v2/events")
 
     json = r.json()
     for page in json["data"]["events"]:
@@ -697,6 +751,8 @@ print("Downloaded all modification dates. Now downloading the pages.")
 DownloadEverything()
 print("Finished downloading all pages. Now cleaning up")
 CleanupUpdate()
-print("Finished downloading!")
+print(
+    f"Finished downloading!\nDownloaded {numdownloaded} files and navbar/theme did {'' if htmlsDeleted else 'not '}change"
+)
 
 print(f"Removed rel types: {removedRelTypes}")
