@@ -21,6 +21,7 @@ jobs:
       with:
         repository: 'sib-utrecht/sib-utrecht-www-static'
         path: 'static'
+        ref: 'main'
     - uses: actions/checkout@v4
       with:
         path: 'config'
@@ -39,8 +40,11 @@ jobs:
         
     - name: Download pages
       run: |
+        ls -a
         find static/ -maxdepth 50 -type f -name "*.html" -delete
+        ls -a
         python config/cache.py
+        ls -a
       env:
         AUTH_BASIC_USER:
           ${{ vars.AUTH_BASIC_USER }}
