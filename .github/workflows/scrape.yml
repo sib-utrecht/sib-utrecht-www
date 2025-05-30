@@ -2,6 +2,8 @@ name: Scrape the site
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '47 5 * * 0,1,2,3,4,5,6'
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -10,6 +12,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
+    continue-on-error: true # only force update to AWS if commiting succeeds (i.e. something changed)
     steps:
     - uses: 'webfactory/ssh-agent@v0.9.1'
       with:
@@ -48,17 +51,21 @@ jobs:
       run: |
         cd site
         git add .
-        git commit -m "Automatically scraped site" || true
+        git commit -m "Automatically scraped site" 
         git pull
         git push
 
     - name: Sync static files with AWS
-      run: ../config/sync_static.sh
       shell: bash
-      working-directory: site
       env:
         AWS_ACCESS_KEY_ID:
           ${{ vars.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY:
           ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         AWS_DEFAULT_REGION: eu-central-1
+
+      # This deletes all time and query files so make sure to run it last
+      run: |
+        cd site
+        ../config/sync_static.sh
+        aws cloudfront create-invalidation --distribution-id E6BJ2KXM7LB8C --paths "/*"
