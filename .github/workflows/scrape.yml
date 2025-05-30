@@ -47,16 +47,16 @@ jobs:
         AUTH_BASIC_PASSWORD:
           ${{ secrets.AUTH_BASIC_PASSWORD }}
     - name: Commit and Push
-      continue-on-error: true # only force update to AWS if commiting succeeds (i.e. something changed)
+      continue-on-error: true # also continue if there was nothing to commit
       run: |
         cd site
         git add .
         git commit -m "Automatically scraped site" 
         git pull
         git push
+        touch changed
 
     - name: Sync static files with AWS
-      if: ${{ success() }}
       shell: bash
       env:
         AWS_ACCESS_KEY_ID:
@@ -66,7 +66,11 @@ jobs:
         AWS_DEFAULT_REGION: eu-central-1
 
       # This deletes all time and query files so make sure to run it last
+      # This does not run if nothing changed
       run: |
-        cd site
-        ../config/sync_static.sh
-        aws cloudfront create-invalidation --distribution-id E6BJ2KXM7LB8C --paths "/*"
+        if test -f changed
+        then
+          cd site
+          ../config/sync_static.sh
+          aws cloudfront create-invalidation --distribution-id E6BJ2KXM7LB8C --paths "/*"
+        fi
