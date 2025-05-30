@@ -531,6 +531,7 @@ def CleanupUpdate():
         output_dir = OUTPUT_DIR_OFFLINE
     else:
         output_dir = OUTPUT_DIR_HTTP
+    subprocess.run(["mv", output_dir + "/.git", "temp"])
     subprocess.run(["rm", "-r", output_dir])
     subprocess.run(["mv", "temp", output_dir])
 
