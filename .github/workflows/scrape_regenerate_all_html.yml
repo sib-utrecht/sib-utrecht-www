@@ -40,11 +40,11 @@ jobs:
         
     - name: Download pages
       run: |
-        ls -a
+        ls static -a
         find static/ -maxdepth 50 -type f -name "*.html" -delete
-        ls -a
+        ls static -a
         python config/cache.py
-        ls -a
+        ls static -a
       env:
         AUTH_BASIC_USER:
           ${{ vars.AUTH_BASIC_USER }}
