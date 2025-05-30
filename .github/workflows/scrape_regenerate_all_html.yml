@@ -16,7 +16,6 @@ jobs:
     - uses: 'webfactory/ssh-agent@v0.9.1'
       with:
         ssh-private-key: ${{ secrets.scrape_action_private_key }}
-        # note: if more are added at some point: see 'https://github.com/webfactory/ssh-agent?tab=readme-ov-file#support-for-github-deploy-keys'
     - uses: actions/checkout@v4
       with:
         repository: 'sib-utrecht/sib-utrecht-www-static'
@@ -40,11 +39,9 @@ jobs:
         
     - name: Download pages
       run: |
-        ls static -a
+        cd static
         find static/ -maxdepth 50 -type f -name "*.html" -delete
-        ls static -a
-        python config/cache.py
-        ls static -a
+        python ../config/cache.py
       env:
         AUTH_BASIC_USER:
           ${{ vars.AUTH_BASIC_USER }}
@@ -53,10 +50,7 @@ jobs:
         AWS_DEFAULT_REGION: eu-central-1
     - name: Commit and Push
       run: |
-        ls -a
         cd static
-        pwd
-        ls -a
         git add .
         git commit -m "Automatically scraped site"
         git pull
@@ -71,7 +65,9 @@ jobs:
           ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         AWS_DEFAULT_REGION: eu-central-1
 
+      # This deletes all time and query files so make sure to run it last
       run: |
-        config/sync_static.sh
+        cd static
+        ../config/sync_static.sh
         aws cloudfront create-invalidation --distribution-id E6BJ2KXM7LB8C --paths "/*"
       
