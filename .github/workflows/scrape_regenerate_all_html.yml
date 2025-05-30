@@ -18,6 +18,7 @@ jobs:
         repository: 'sib-utrecht/sib-utrecht-www-static'
         path: 'static'
         ref: 'main'
+        ssh-key: ${{ secrets.scrape_action_private_key }}
     - uses: actions/checkout@v4
       with:
         path: 'config'
