@@ -50,7 +50,10 @@ jobs:
         AWS_DEFAULT_REGION: eu-central-1
     - name: Commit and Push
       run: |
+        ls -a
         cd static
+        pwd
+        ls -a
         git add .
         git commit -m "Automatically scraped site"
         git pull
