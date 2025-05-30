@@ -21,7 +21,6 @@ jobs:
       with:
         repository: 'sib-utrecht/sib-utrecht-www-static'
         path: 'static'
-        ref: 'main'
     - uses: actions/checkout@v4
       with:
         path: 'config'
