@@ -230,7 +230,7 @@ def ShouldRedownload(route, time):
     if route.path.endswith(".js") or route.path.endswith(".css"):
         return ReadAndUpdateQueryFile(route)
     if route.path in alwaysRedownload:
-        return False
+        return True
 
     path = route.path
     try:
