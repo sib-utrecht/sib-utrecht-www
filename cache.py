@@ -40,6 +40,7 @@ params = {"noauth": "true"}
 # If they differ then the navbar changed and all html need to be downloaded again
 firstUptoDateHtmlFile = True
 htmlsDeleted = False
+alwaysRedownload = ["/", "/activities", "/meet-sib"]
 
 
 class Route:
@@ -219,6 +220,8 @@ def ShouldRedownload(route, time):
         return False
     if route.path.endswith(".js") or route.path.endswith(".css"):
         return ReadAndUpdateQueryFile(route)
+    if route.path in alwaysRedownload:
+        return False
 
     path = route.path
     try:
@@ -273,7 +276,7 @@ def Get(route):
                 )
     else:
         print(
-            f"File {route.path} did not exist in previous download or was invalidated by update to navbar/theme: downloading...",
+            f"File {route.path} did not exist in previous download or was explicitly removed (index.html, activities, ...) or was invalidated by update to navbar/theme: downloading...",
             end="",
         )
     newfile = Download(route.path)
