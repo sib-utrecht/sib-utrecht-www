@@ -222,8 +222,9 @@ def ShouldRedownload(route, time):
     return True
 
 
-# Return (content, wasDownloaded)
+# Return (content, wasDownloaded, originalcontent) (originnalcontent only if it was downloaded and it already existed)
 def Get(route):
+    originalcontent = ""
     if os.path.exists(GetNewUrl(route.path, for_writing=True, use_orig=True)):
         with open(GetLocationOfTimestampFromURL(route.path, use_orig=True)) as f:
             time = datetime.fromisoformat(f.read()).replace(tzinfo=timezone.utc)
@@ -232,17 +233,21 @@ def Get(route):
                 GetNewUrl(route.path, for_writing=True, use_orig=True), "rb"
             ) as f:
                 print(f"Moving file {route.path} from previous download...", end="")
-                return (f.read(), False)
+                return (f.read(), False, {})
         else:
             print(
                 f"File {route.path} is invalidated and will be redownloaded...", end=""
             )
+            with open(
+                GetNewUrl(route.path, for_writing=True, use_orig=True), "rb"
+            ) as f:
+                originalcontent = f.read()
     else:
         print(
             f"File {route.path} did not exist in previous download: downloading...",
             end="",
         )
-    return (Download(route.path), True)
+    return (Download(route.path), True, originalcontent)
 
 
 def ParseLink(link, wasDownloaded=True):
@@ -535,7 +540,7 @@ TIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
 def HandleSingleFile(nextRoute):
     try:
-        (fileBytes, wasDownloaded) = Get(nextRoute)
+        (fileBytes, wasDownloaded, originalcontent) = Get(nextRoute)
         routesDone.add(nextRoute.path)
         assert "restricted/secret-" not in nextRoute.path
         try:
@@ -571,7 +576,7 @@ def HandleSingleFile(nextRoute):
                     GetNewUrl(nextRoute.path, for_writing=True),
                 ]
             )
-        if wasDownloaded:
+        if wasDownloaded and originalcontent != fileBytes:
             with open(GetLocationOfTimestampFromURL(nextRoute.path, False), "w") as f:
                 f.write(time_now)
         else:
