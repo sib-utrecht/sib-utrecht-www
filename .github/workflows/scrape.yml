@@ -11,10 +11,17 @@ jobs:
     permissions:
       contents: write
     steps:
+    - uses: 'webfactory/ssh-agent@v0.9.1'
+      with:
+        ssh-private-key: ${{ secrets.scrape_action_private_key }}
     - uses: actions/checkout@v4
       with:
+        repository: 'sib-utrecht/sib-utrecht-www-static'
         path: 'site'
-        ref: 'site'
+        ref: 'main'
+    - uses: actions/checkout@v4
+      with:
+        path: 'config'
     - name: Download python
       uses: actions/setup-python@v5
       with:
@@ -35,7 +42,7 @@ jobs:
         rm static/test-nonexistent/index.html || true
         rm static/activities/index.html || true
         rm static/meet-sib/index.html || true
-        python cache.py
+        python ../config/cache.py
       env:
         AUTH_BASIC_USER:
           ${{ vars.AUTH_BASIC_USER }}
@@ -46,6 +53,7 @@ jobs:
         cd site
         git add .
         git commit -m "Automatically scraped site"
+        git pull
         git push
 
     - name: Sync static files with AWS

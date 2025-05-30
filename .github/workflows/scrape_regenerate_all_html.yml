@@ -19,7 +19,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         repository: 'sib-utrecht/sib-utrecht-www-static'
-        path: 'static'
+        path: 'site'
         ref: 'main'
     - uses: actions/checkout@v4
       with:
@@ -39,7 +39,7 @@ jobs:
         
     - name: Download pages
       run: |
-        cd static
+        cd site
         find static/ -maxdepth 50 -type f -name "*.html" -delete
         python ../config/cache.py
       env:
@@ -50,7 +50,7 @@ jobs:
         AWS_DEFAULT_REGION: eu-central-1
     - name: Commit and Push
       run: |
-        cd static
+        cd site
         git add .
         git commit -m "Automatically scraped site"
         git pull
@@ -67,7 +67,7 @@ jobs:
 
       # This deletes all time and query files so make sure to run it last
       run: |
-        cd static
+        cd site
         ../config/sync_static.sh
         aws cloudfront create-invalidation --distribution-id E6BJ2KXM7LB8C --paths "/*"
       
