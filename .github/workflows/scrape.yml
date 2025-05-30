@@ -57,7 +57,7 @@ jobs:
         git push
 
     - name: Sync static files with AWS
-      run: ./sync_static.sh
+      run: ../config/sync_static.sh
       shell: bash
       working-directory: site
       env:
