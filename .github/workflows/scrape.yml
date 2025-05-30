@@ -9,7 +9,7 @@ jobs:
       group: scrape-group
       cancel-in-progress: false
     permissions:
-      contents: write
+      contents: read
     steps:
     - uses: 'webfactory/ssh-agent@v0.9.1'
       with:
@@ -48,7 +48,7 @@ jobs:
       run: |
         cd site
         git add .
-        git commit -m "Automatically scraped site"
+        git commit -m "Automatically scraped site" || true
         git pull
         git push
 

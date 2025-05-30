@@ -53,6 +53,12 @@ class Route:
         self.linkedfrom = linkedfrom
         self.query = query
 
+    def __eq__(self, other):
+        return self.path == other.path
+
+    def __hash__(self):
+        return hash(self.path)
+
     def __str__(self):
         return (
             "'"
@@ -79,7 +85,7 @@ routesTodo = {
         args.root + "restricted/documents",
         "entrance",
     ),
-    Route(args.root + "symposium/", args.root + "symposium/", "symposium"),
+    Route(args.root + "symposium", args.root + "symposium", "symposium"),
     Route(
         args.root + "activities",
         args.root + "activities",
