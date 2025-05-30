@@ -13,6 +13,10 @@ jobs:
     permissions:
       contents: write
     steps:
+    - uses webfactory/ssh-agent@v0.9.1
+      with:
+        ssh-private-key: ${{ secrets.scrape_action_private_key }}
+        # note: if more are added at some point: see 'https://github.com/webfactory/ssh-agent?tab=readme-ov-file#support-for-github-deploy-keys'
     - uses: actions/checkout@v4
       with:
         repository: 'sib-utrecht/sib-utrecht-www-static'
