@@ -68,7 +68,7 @@ jobs:
       # This deletes all time and query files so make sure to run it last
       # This does not run if nothing changed
       run: |
-        if test -f changed
+        if test -f site/changed
         then
           cd site
           ../config/sync_static.sh
