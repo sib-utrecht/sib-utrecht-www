@@ -231,6 +231,8 @@ def ShouldRedownload(route, time):
         return ReadAndUpdateQueryFile(route)
     if route.path in alwaysRedownload:
         return True
+    if ("." not in route.path or route.path.endswith(".html")) and htmlsDeleted:
+        return True
 
     path = route.path
     try:
@@ -611,21 +613,21 @@ def HandleSingleFile(nextRoute):
                                 # with open("new.html", "wb") as f:
                                 #     f.write(fileBytes)
                                 print(
-                                    "Html file is different: navbar/theme changed. Now deleting all html files"
+                                    "Html file is different: navbar/theme changed. Now marking all html files for redownload."
                                 )
-                                subprocess.run(
-                                    [
-                                        "find",
-                                        "static/",
-                                        "-maxdepth",
-                                        "50",
-                                        "-type",
-                                        "f",
-                                        "-name",
-                                        "*.html",
-                                        "-delete",
-                                    ]
-                                )
+                                # subprocess.run(
+                                #     [
+                                #         "find",
+                                #         "static/",
+                                #         "-maxdepth",
+                                #         "50",
+                                #         "-type",
+                                #         "f",
+                                #         "-name",
+                                #         "*.html",
+                                #         "-delete",
+                                #     ]
+                                # )
                                 global htmlsDeleted
                                 htmlsDeleted = True
                             else:
