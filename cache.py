@@ -4,12 +4,14 @@ import os
 import re
 import argparse
 import traceback
+import shutil
 from time import sleep
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from pathlib import PurePosixPath
 from datetime import datetime, timezone
 from dotenv import load_dotenv
+from pathlib import Path
 
 load_dotenv()
 
@@ -29,10 +31,19 @@ alternate_website = "https://edit.sib-utrecht.nl"
 OUTPUT_DIR_OFFLINE = "cache"
 OUTPUT_DIR_HTTP = "static"
 OUTPUT_DIR = OUTPUT_DIR_OFFLINE if args.offline_use else OUTPUT_DIR_HTTP
+TEMP_DIR = Path.cwd() / "temp"
 
-# The site should be open soon so it doesn't matter that the credentials are store in this file for now
-# auth = ('dev', 'ictcie')
-auth = (os.getenv("AUTH_BASIC_USER"), os.getenv("AUTH_BASIC_PASSWORD"))
+auth_user = os.getenv("AUTH_BASIC_USER")
+auth_password = os.getenv("AUTH_BASIC_PASSWORD")
+
+if auth_user is None or auth_password is None:
+    print(
+        "Please add .env file with the environment variables AUTH_BASIC_USER and AUTH_BASIC_PASSWORD, or "
+        "invoke the script with the environment variables set"
+    )
+    exit(-1)
+
+auth = (auth_user, auth_password)
 params = {"noauth": "true"}
 
 # Have we seen a html file that does not have to be updated according to the filestamp
@@ -642,25 +653,26 @@ def HandleSingleFile(nextRoute):
 
         else:
             dest = GetNewUrl(nextRoute.path, for_writing=True)
-            subprocess.run(["mkdir", "-p", os.path.split(dest)[0]])
-            subprocess.run(
-                [
-                    "mv",
-                    GetNewUrl(nextRoute.path, for_writing=True, use_orig=True),
-                    GetNewUrl(nextRoute.path, for_writing=True),
-                ]
-            )
+            
+            origPath = Path(GetNewUrl(nextRoute.path, for_writing=True, use_orig=True))
+            destPath = Path(dest)
+            
+            destPath.parent.mkdir(parents=True, exist_ok=True)
+            origPath.rename(destPath)
+
         if wasDownloaded and originalcontent != fileBytes:
             with open(GetLocationOfTimestampFromURL(nextRoute.path, False), "w") as f:
                 f.write(time_now)
         else:
-            subprocess.run(
-                [
-                    "mv",
-                    GetLocationOfTimestampFromURL(nextRoute.path, use_orig=True),
-                    GetLocationOfTimestampFromURL(nextRoute.path, use_orig=False),
-                ]
+            origPath = Path(
+                GetLocationOfTimestampFromURL(nextRoute.path, use_orig=True),
             )
+            destPath = Path(
+                GetLocationOfTimestampFromURL(nextRoute.path, use_orig=False),
+            )
+
+            origPath.rename(destPath)
+
         print("Done.")
     except Exception as e:
         if args.verbose:
@@ -696,6 +708,11 @@ def GetModificationDates(path):
         if r.status_code == 400:
             # We reached the end
             break
+
+        if r.status_code > 300:
+            raise Exception(
+                    f"Error: status code {r.status_code} while fetching {website}{path}"
+                )
 
         json = r.json()
         for page in json:
@@ -744,7 +761,8 @@ def GetModificationDatesForEvents():
 
 
 def SetupUpdate():
-    subprocess.run(["mkdir", "temp"])
+    TEMP_DIR.mkdir(exist_ok=True)
+
     GetModificationDates("/wp-json/wp/v2/pages")
     GetModificationDates("/wp-json/wp/v2/media")
     GetModificationDatesForEvents()
@@ -755,8 +773,11 @@ def CleanupUpdate():
         output_dir = OUTPUT_DIR_OFFLINE
     else:
         output_dir = OUTPUT_DIR_HTTP
-    subprocess.run(["rm", "-r", output_dir])
-    subprocess.run(["mv", "temp", output_dir])
+
+    output_dir = Path(output_dir)
+    shutil.rmtree(output_dir, ignore_errors=True)
+
+    TEMP_DIR.rename(output_dir)
 
 
 print("Starting the scraping")
