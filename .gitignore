@@ -9,3 +9,4 @@ shell.nix
 index2.html
 
 static2/
+.env
