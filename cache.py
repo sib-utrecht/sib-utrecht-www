@@ -12,6 +12,17 @@ from pathlib import PurePosixPath
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from pathlib import Path
+from datetime import datetime, timezone
+import pytz
+from time import perf_counter
+import json
+
+tz = pytz.timezone("Europe/Amsterdam")
+
+# ANSI color codes for warning prefix
+ANSI_YELLOW = "\033[33m"
+ANSI_RESET = "\033[0m"
+WARNING_TAG = f"{ANSI_YELLOW}WARNING:{ANSI_RESET}"
 
 load_dotenv()
 
@@ -116,7 +127,7 @@ routesDone.add("/signout/")
 USE_FILE_LOCATION = args.offline_use
 
 session = requests.session()
-retry = Retry(connect=3, backoff_factor=0.5)
+retry = Retry(connect=3, backoff_factor=0.5) # type: ignore
 adapter = HTTPAdapter(max_retries=retry)
 session.mount("http://", adapter)
 session.mount("https://", adapter)
@@ -168,7 +179,7 @@ def RemoveFirstFolder(path):
     return os.path.join(RemoveFirstFolder(first), second)
 
 
-def GetUrlFromFileLocation(filepath):
+def GetUrlFromFileLocation(filepath : str) -> str:
     if not args.offline_use:
         return filepath
     filepath = os.path.relpath(filepath)
@@ -224,7 +235,7 @@ def ReadAndUpdateQueryFile(route):
         )
         return False
     except IOError:
-        print(f"WARNING: Query file for route {route} did not yet exist")
+        print(f"{WARNING_TAG} Query file for route {route} did not yet exist")
         with open(GetLocationOfQueryFromURL(route.path, use_orig=False), "w") as f:
             f.write(route.query)
             return True
@@ -251,7 +262,7 @@ def ShouldRedownload(route, time):
             return False
     except:
         print(
-            f"WARNING: File didn't exist in the database of modified times {route.path}"
+            f"{WARNING_TAG} File didn't exist in the database of modified times {route.path}"
         )
     return True
 
@@ -283,7 +294,8 @@ def Get(route):
             with open(
                 GetNewUrl(route.path, for_writing=True, use_orig=True), "rb"
             ) as f:
-                print(f"Moving file {route.path} from previous download...", end="")
+                if args.verbose:
+                    print(f"Moving file {route.path} from previous download...", end="")
                 return (f.read(), False, {}, False)
         else:
             print(
@@ -298,14 +310,14 @@ def Get(route):
                 )
     else:
         print(
-            f"File {route.path} did not exist in previous download or was explicitly removed (index.html, activities, ...) or was invalidated by update to navbar/theme: downloading...",
+            f"Info: File {route.path} did not exist in previous download or was explicitly removed (index.html, activities, ...) or was invalidated by update to navbar/theme: downloading...",
             end="",
         )
     newfile = Download(route.path)
     return (newfile, True, originalcontent, specialCase)
 
 
-def ParseLink(link, wasDownloaded=True):
+def ParseLink(link : str, wasDownloaded=True):
     changed = False
     query = ""
 
@@ -343,11 +355,11 @@ def ParseLink(link, wasDownloaded=True):
         or "wp-json" in link
         or "/feed" in link
     ):  # the : appears in svg urls
-        return None, None
+        return None, ""
 
     if link.startswith("//"):
         assert not link.startswith("//dev2.sib-utrecht.nl")
-        return None, None
+        return None, ""
 
     if wasDownloaded:
         return link, query
@@ -575,11 +587,11 @@ def SubstituteRoutes(code, currentPath):
     return code
 
 
-def CheckCodeForLinks(code, currentPath):
+def CheckCodeForLinks(code, currentPath, wasDownloaded):
     removeSecret = re.compile("/restricted/secret-[^/?#]+")
     code = removeSecret.sub("/restricted", code)
 
-    FindNewRoutes(code, currentPath)
+    FindNewRoutes(code, currentPath, wasDownloaded)
     code = SubstituteRoutes(code, currentPath)
 
     removeWorkWebsite = re.compile(
@@ -673,7 +685,8 @@ def HandleSingleFile(nextRoute):
 
             origPath.rename(destPath)
 
-        print("Done.")
+        if args.verbose:
+            print("Done.")
     except Exception as e:
         if args.verbose:
             print("Something went wrong while working on path ", nextRoute)
@@ -681,7 +694,7 @@ def HandleSingleFile(nextRoute):
             print(traceback.format_exc())
             exit(-1)
         else:
-            print("\nWARNING: something went wrong while working on path ", nextRoute)
+            print(f"\n{WARNING_TAG} something went wrong while working on path {nextRoute}")
             print(repr(e))
 
 
@@ -734,7 +747,7 @@ def GetModificationDates(path):
                             "Error: linked page '" + link + "' is not a SIB-page!"
                         )
                     else:
-                        print(f"WARNING: linked page '{link}' is not a SIB page")
+                        print(f"{WARNING_TAG} linked page '{link}' is not a SIB page")
                         continue
                 currentpath = (
                     link[len(website) :]
@@ -751,7 +764,7 @@ def GetModificationDates(path):
 
 def GetModificationDatesForEvents():
     global MODIFICATION_TIMES
-    r = requests.get("https://api.sib-utrecht.nl/v2/events")
+    r = requests.get("https://api2.sib-utrecht.nl/v2/events")
 
     json = r.json()
     for page in json["data"]["events"]:
@@ -763,9 +776,14 @@ def GetModificationDatesForEvents():
 def SetupUpdate():
     TEMP_DIR.mkdir(exist_ok=True)
 
-    GetModificationDates("/wp-json/wp/v2/pages")
-    GetModificationDates("/wp-json/wp/v2/media")
+    print("Getting modification dates of events...")
     GetModificationDatesForEvents()
+
+    print("Getting modification dates of media...")
+    GetModificationDates("/wp-json/wp/v2/media")
+
+    print("Getting modification dates of pages...")
+    GetModificationDates("/wp-json/wp/v2/pages")
 
 
 def CleanupUpdate():
@@ -780,7 +798,8 @@ def CleanupUpdate():
     TEMP_DIR.rename(output_dir)
 
 
-print("Starting the scraping")
+start_stopwatch = perf_counter()
+print(f"Starting the scraping at {datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S %Z%z')}")
 SetupUpdate()
 print("Downloaded all modification dates. Now downloading the pages.")
 DownloadEverything()
@@ -791,3 +810,7 @@ print(
 )
 
 print(f"Removed rel types: {removedRelTypes}")
+
+end_stopwatch = perf_counter()
+print(f"Total time: {end_stopwatch - start_stopwatch}")
+
