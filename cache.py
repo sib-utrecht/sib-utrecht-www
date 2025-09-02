@@ -15,6 +15,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 import pytz
 from time import perf_counter
+from threading import Thread, Event, Lock
 import json
 
 tz = pytz.timezone("Europe/Amsterdam")
@@ -123,6 +124,110 @@ routesDone.add("/restricted/documents-ugly")
 routesDone.add("/restricted/documents-ugly/")
 routesDone.add("/signout")
 routesDone.add("/signout/")
+
+# Baseline for already-marked-done routes so progress starts from 0
+INITIAL_ROUTES_DONE = len(routesDone)
+
+# Progress logging setup
+progress_stop_event = Event()
+progress_lock = Lock()
+setup_total = 0
+setup_done = 0
+# Persisted baseline meta
+PROGRESS_META_FILE = "progress_meta.json"
+progress_last_pct = 0.0
+# Tweakable fraction of total we allocate to setup (virtual units)
+SETUP_TARGET_FRACTION = float(os.getenv("SETUP_PROGRESS_FRACTION", "0.10"))
+# Virtualized progress accounting
+virtual_setup_total = 0
+route_max_total = 0
+
+
+def _init_progress_baseline():
+    global virtual_setup_total, route_max_total
+    try:
+        with open(PROGRESS_META_FILE, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+            est = int(meta.get("expected_total_estimate", 0))
+    except Exception:
+        est = 0
+
+    if est > 0:
+        # Allocate a fraction of last total to setup, remainder to routes
+        virtual_setup = max(1, int(est * SETUP_TARGET_FRACTION))
+        remainder_routes = max(0, est - virtual_setup)
+    else:
+        # Fallback when no baseline known yet
+        virtual_setup = 50
+        remainder_routes = 0
+
+    with progress_lock:
+        virtual_setup_total = virtual_setup
+        route_max_total = remainder_routes
+
+
+def _save_progress_meta():
+    try:
+        with progress_lock:
+            expected = int(virtual_setup_total + route_max_total)
+        with open(PROGRESS_META_FILE, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "expected_total_estimate": expected,
+                    "ts": datetime.now(tz).strftime("%Y-%m-%dT%H:%M:%S"),
+                    "setup_fraction": SETUP_TARGET_FRACTION,
+                },
+                f,
+            )
+    except Exception:
+        # Best-effort only
+        pass
+
+
+def _write_progress_line():
+    try:
+        ts = datetime.now(tz).strftime("%Y-%m-%dT%H:%M:%S")
+        with progress_lock:
+            global route_max_total
+            processed_routes = max(0, len(routesDone) - INITIAL_ROUTES_DONE)
+            queued_routes = len(routesTodo)
+            # Map real setup progress to virtual setup units
+            if setup_total > 0:
+                setup_ratio = min(1.0, setup_done / setup_total)
+                virtual_setup_done = int(round(virtual_setup_total * setup_ratio))
+            else:
+                virtual_setup_done = 0
+
+            # Discovering routes grows route_now; keep a non-decreasing max
+            route_now = processed_routes + queued_routes
+            if route_now > route_max_total:
+                # Update route_max_total atomically inside lock
+                route_max_total = route_now
+
+            total_estimate = max(1, int(virtual_setup_total + route_max_total))
+            completed_units = virtual_setup_done + processed_routes
+
+            pct_now = completed_units / total_estimate
+            # Ensure non-decreasing percentage
+            global progress_last_pct
+            if pct_now < progress_last_pct:
+                pct = progress_last_pct
+            else:
+                pct = pct_now
+                progress_last_pct = pct
+
+        with open("progress.txt", "a", encoding="utf-8") as f:
+            f.write(
+                f'["{ts}", {completed_units}, {total_estimate}, "{pct*100:.1f}%", {setup_done}, {setup_total}]\n'
+            )
+    except Exception:
+        # Best-effort: ignore progress file errors
+        pass
+
+def _progress_loop():
+    while not progress_stop_event.is_set():
+        _write_progress_line()
+        sleep(1)
 
 USE_FILE_LOCATION = args.offline_use
 
@@ -713,7 +818,9 @@ MODIFICATION_TIMES = {}
 
 def GetModificationDates(path):
     global MODIFICATION_TIMES
+    global setup_total, setup_done
     page_num = 1
+    counted_total = False
     while True:
         r = requests.get(
             f"{website}{path}?page={page_num}&per_page=100", auth=auth, params=params
@@ -726,6 +833,17 @@ def GetModificationDates(path):
             raise Exception(
                     f"Error: status code {r.status_code} while fetching {website}{path}"
                 )
+
+        if not counted_total:
+            # Estimate total number of pagination pages for this endpoint, if header is present
+            total_pages_header = r.headers.get("X-WP-TotalPages") or r.headers.get("x-wp-totalpages")
+            try:
+                total_pages = int(total_pages_header) if total_pages_header is not None else 1
+            except Exception:
+                total_pages = 1
+            with progress_lock:
+                setup_total += max(1, total_pages)
+            counted_total = True
 
         json = r.json()
         for page in json:
@@ -759,18 +877,28 @@ def GetModificationDates(path):
 
                 MODIFICATION_TIMES[currentpath] = modified_time
 
+        with progress_lock:
+            setup_done += 1
+
         page_num += 1
 
 
 def GetModificationDatesForEvents():
     global MODIFICATION_TIMES
     r = requests.get("https://api2.sib-utrecht.nl/v2/events")
+    global setup_total, setup_done
+    # Treat events fetch as a single unit of setup work
+    with progress_lock:
+        setup_total += 1
 
     json = r.json()
     for page in json["data"]["events"]:
         modified_time = datetime.fromisoformat(page["$.modified"])
         link = f"/activities/{page['id']}"
         MODIFICATION_TIMES[link] = modified_time
+
+    with progress_lock:
+        setup_done += 1
 
 
 def SetupUpdate():
@@ -800,11 +928,24 @@ def CleanupUpdate():
 
 start_stopwatch = perf_counter()
 print(f"Starting the scraping at {datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S %Z%z')}")
+
+# Initialize progress baseline from previous run (if available)
+_init_progress_baseline()
+# Start progress logger right before the main download loop
+progress_thread = Thread(target=_progress_loop, daemon=True)
+progress_thread.start()
+
 SetupUpdate()
 print("Downloaded all modification dates. Now downloading the pages.")
 DownloadEverything()
 print("Finished downloading all pages. Now cleaning up")
 CleanupUpdate()
+# Stop progress logger and write a final line
+progress_stop_event.set()
+progress_thread.join(timeout=2)
+_write_progress_line()
+# Persist updated total for next run
+_save_progress_meta()
 print(
     f"Finished downloading!\nDownloaded {numdownloaded} files and navbar/theme did {'' if htmlsDeleted else 'not '}change"
 )
