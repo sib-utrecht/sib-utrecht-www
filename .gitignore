@@ -1,6 +1,7 @@
 .aws-sam/build/
 .aws-sam/build.toml
 .aws-sam/sync.toml
+.env
 cache
 static-2025-01-05_0025/
 __pycache__/
@@ -9,4 +10,7 @@ shell.nix
 index2.html
 
 static2/
-.env
+static/
+
+# Python virtual environment
+.venv/

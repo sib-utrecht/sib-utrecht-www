@@ -1,0 +1,5 @@
+# Python dependencies for sib-utrecht-www
+requests
+urllib3
+python-dotenv
+pytz
