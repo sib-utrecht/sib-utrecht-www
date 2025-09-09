@@ -65,42 +65,34 @@ cat <<EOF | sudo tee $JOURNAL_SOCKET_FILE > /dev/null
 Description=SIB WWW journal endpoint (socket-activated)
 
 [Socket]
-# ListenStream=/run/sib-www-journal.sock
-# # World-readable socket so container can proxy after bind-mount; tighten if you manage shared groups
-# SocketMode=0666
-# Listen on loopback TCP; container should proxy to host via host.docker.internal
-ListenStream=127.0.0.1:9099
+# Listen on specific addresses; CIDR masks are not supported in ListenStream
+# Use the docker bridge IP (adjust if different) and loopback
+# ListenStream=172.17.0.1:9099
+# ListenStream=127.0.0.1:9099
+ListenStream=0.0.0.0:9099
 Accept=yes
 
 [Install]
 WantedBy=sockets.target
 EOF
 
-# Create service template that prints last 100 journal lines over HTTP
-cat <<EOF | sudo tee $JOURNAL_SERVICE_FILE > /dev/null
+# Create service template that streams journal as Server-Sent Events (SSE)
+cat <<'EOF' | sudo tee $JOURNAL_SERVICE_FILE > /dev/null
 [Unit]
 Description=SIB WWW journal endpoint (per-connection service)
 After=systemd-journald.service
 
 [Service]
-Type=simple
+Type=oneshot
 StandardInput=socket
 StandardOutput=socket
 StandardError=journal
 User=fedora
 Group=fedora
-# Minimal, read-only FS hardening
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectSystem=strict
+# Treat broken pipe / disconnect as success to avoid noisy failures
+SuccessExitStatus=141 SIGPIPE
 
-# Return HTTP headers and the journal output in the desired format
-# ExecStart=/bin/sh -c '/usr/bin/printf "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n\r\n"; /usr/bin/journalctl -u sib-www-sync --no-hostname -o short -n 100 | /usr/bin/sed -E "s/^([A-Z][a-z]{2} [ 0-9][0-9] [0-9]{2}:[0-9]{2}:[0-9]{2}) [^:]+: (.*)$/\\1 | \\2/"'
-# ExecStart=/bin/sh -c '/usr/bin/printf "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n\r\nHello!\r\n";'
-
-# Read and discard request headers, then respond
-# ExecStart=/bin/sh -c '/usr/bin/logger -t sib-www-journal "connection"; /usr/bin/sed -u "/^\r\?$/q" >/dev/null; /usr/bin/printf "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n\r\nHello!\r\n";'
-ExecStart=/bin/sh -c '/usr/bin/logger -t sib-www-journal "connection"; /usr/bin/sed -u "/^\r\?$/q" >/dev/null; /usr/bin/printf "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n\r\nLatest 100 lines of log:\r\n"; /usr/bin/journalctl -u sib-www-sync --no-hostname -o short -n 100 | /usr/bin/sed -E "s/^([A-Z][a-z]{2} [ 0-9][0-9] [0-9]{2}:[0-9]{2}:[0-9]{2}) [^:]+: (.*)$/\\1 | \\2/"'
+ExecStart=/bin/sh -c '/home/fedora/sib-utrecht-www/stream-log.sh'
 
 Restart=no
 
