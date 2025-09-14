@@ -12,10 +12,8 @@ from pathlib import PurePosixPath
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from pathlib import Path
-from datetime import datetime, timezone
 import pytz
 from time import perf_counter
-import json
 
 tz = pytz.timezone("Europe/Amsterdam")
 
@@ -23,6 +21,12 @@ tz = pytz.timezone("Europe/Amsterdam")
 ANSI_YELLOW = "\033[33m"
 ANSI_RESET = "\033[0m"
 WARNING_TAG = f"{ANSI_YELLOW}WARNING:{ANSI_RESET}"
+
+
+# This text is filtered to the user by 'stream-log.sh', but still shown in the journalctl to ease debugging
+def printdev(text):
+    print(f"DEV: {text}")
+
 
 load_dotenv()
 
@@ -49,7 +53,7 @@ auth_password = os.getenv("AUTH_BASIC_PASSWORD")
 
 if auth_user is None or auth_password is None:
     print(
-        "Please add .env file with the environment variables AUTH_BASIC_USER and AUTH_BASIC_PASSWORD, or "
+        "FATAL ERROR: Please add .env file with the environment variables AUTH_BASIC_USER and AUTH_BASIC_PASSWORD, or "
         "invoke the script with the environment variables set"
     )
     exit(-1)
@@ -127,7 +131,7 @@ routesDone.add("/signout/")
 USE_FILE_LOCATION = args.offline_use
 
 session = requests.session()
-retry = Retry(connect=3, backoff_factor=0.5) # type: ignore
+retry = Retry(connect=3, backoff_factor=0.5)  # type: ignore
 adapter = HTTPAdapter(max_retries=retry)
 session.mount("http://", adapter)
 session.mount("https://", adapter)
@@ -179,7 +183,7 @@ def RemoveFirstFolder(path):
     return os.path.join(RemoveFirstFolder(first), second)
 
 
-def GetUrlFromFileLocation(filepath : str) -> str:
+def GetUrlFromFileLocation(filepath: str) -> str:
     if not args.offline_use:
         return filepath
     filepath = os.path.relpath(filepath)
@@ -235,7 +239,7 @@ def ReadAndUpdateQueryFile(route):
         )
         return False
     except IOError:
-        print(f"{WARNING_TAG} Query file for route {route} did not yet exist")
+        printdev(f"{WARNING_TAG} Query file for route {route} did not yet exist")
         with open(GetLocationOfQueryFromURL(route.path, use_orig=False), "w") as f:
             f.write(route.query)
             return True
@@ -261,7 +265,7 @@ def ShouldRedownload(route, time):
         if time >= MODIFICATION_TIMES[path]:
             return False
     except:
-        print(
+        printdev(
             f"{WARNING_TAG} File didn't exist in the database of modified times {route.path}"
         )
     return True
@@ -287,7 +291,7 @@ def Get(route):
             specialCase = True
             firstUptoDateHtmlFile = False
             shouldRedownload = True
-            print(
+            printdev(
                 f"First up to date html file: {route.path}, checking for changes to navbar"
             )
         if not shouldRedownload:
@@ -295,21 +299,23 @@ def Get(route):
                 GetNewUrl(route.path, for_writing=True, use_orig=True), "rb"
             ) as f:
                 if args.verbose:
-                    print(f"Moving file {route.path} from previous download...", end="")
+                    printdev(
+                        f"Moving file {route.path} from previous download...", end=""
+                    )
                 return (f.read(), False, {}, False)
         else:
-            print(
+            printdev(
                 f"File {route.path} is invalidated and will be redownloaded...", end=""
             )
             with open(
                 GetNewUrl(route.path, for_writing=True, use_orig=True), "rb"
             ) as f:
                 originalcontent = f.read()
-                print(
+                printdev(
                     f"original content was {GetNewUrl(route.path, for_writing=True, use_orig=True)}"
                 )
     else:
-        print(
+        printdev(
             f"Info: File {route.path} did not exist in previous download or was explicitly removed (index.html, activities, ...) or was invalidated by update to navbar/theme: downloading...",
             end="",
         )
@@ -317,7 +323,7 @@ def Get(route):
     return (newfile, True, originalcontent, specialCase)
 
 
-def ParseLink(link : str, wasDownloaded=True):
+def ParseLink(link: str, wasDownloaded=True):
     changed = False
     query = ""
 
@@ -654,7 +660,7 @@ def HandleSingleFile(nextRoute):
                                 global htmlsDeleted
                                 htmlsDeleted = True
                             else:
-                                print(
+                                printdev(
                                     "HTML file is not different: navbar/theme did not change"
                                 )
 
@@ -665,10 +671,10 @@ def HandleSingleFile(nextRoute):
 
         else:
             dest = GetNewUrl(nextRoute.path, for_writing=True)
-            
+
             origPath = Path(GetNewUrl(nextRoute.path, for_writing=True, use_orig=True))
             destPath = Path(dest)
-            
+
             destPath.parent.mkdir(parents=True, exist_ok=True)
             origPath.rename(destPath)
 
@@ -694,8 +700,13 @@ def HandleSingleFile(nextRoute):
             print(traceback.format_exc())
             exit(-1)
         else:
-            print(f"\n{WARNING_TAG} something went wrong while working on path {nextRoute}")
-            print(repr(e))
+            print(f"\n{WARNING_TAG} path {nextRoute.path} failed")
+            printdev(f"Full path = {nextRoute}")
+            printdev(repr(e))
+            # print(
+            #     f"\n{WARNING_TAG} something went wrong while working on path {nextRoute}"
+            # )
+            # print(repr(e))
 
 
 time_now = datetime.now(timezone.utc).strftime(TIME_FORMAT)
@@ -724,8 +735,8 @@ def GetModificationDates(path):
 
         if r.status_code > 300:
             raise Exception(
-                    f"Error: status code {r.status_code} while fetching {website}{path}"
-                )
+                f"Error: status code {r.status_code} while fetching {website}{path}"
+            )
 
         json = r.json()
         for page in json:
@@ -742,6 +753,7 @@ def GetModificationDates(path):
                 if not link.startswith(website) and not link.startswith(
                     alternate_website
                 ):
+                    # I am not sure when this triggers but it does not happen right now
                     if args.verbose:
                         raise Exception(
                             "Error: linked page '" + link + "' is not a SIB-page!"
@@ -776,13 +788,13 @@ def GetModificationDatesForEvents():
 def SetupUpdate():
     TEMP_DIR.mkdir(exist_ok=True)
 
-    print("Getting modification dates of events...")
+    print("Getting modification dates of files...")
     GetModificationDatesForEvents()
 
-    print("Getting modification dates of media...")
+    printdev("Getting modification dates of media...")
     GetModificationDates("/wp-json/wp/v2/media")
 
-    print("Getting modification dates of pages...")
+    printdev("Getting modification dates of pages...")
     GetModificationDates("/wp-json/wp/v2/pages")
 
 
@@ -803,14 +815,13 @@ print(f"Starting the scraping at {datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S %
 SetupUpdate()
 print("Downloaded all modification dates. Now downloading the pages.")
 DownloadEverything()
-print("Finished downloading all pages. Now cleaning up")
+printdev("Finished downloading all pages. Now cleaning up")
 CleanupUpdate()
-print(
-    f"Finished downloading!\nDownloaded {numdownloaded} files and navbar/theme did {'' if htmlsDeleted else 'not '}change"
-)
-
-print(f"Removed rel types: {removedRelTypes}")
-
 end_stopwatch = perf_counter()
-print(f"Total time: {end_stopwatch - start_stopwatch}")
+time = str(end_stopwatch - start_stopwatch)
+pos = time.find(".")
+if pos != -1:
+    text = time[:pos]
+print(f"Finished downloading!\nDownloaded {numdownloaded} files in {time} seconds")
 
+printdev(f"Removed rel types: {removedRelTypes}")

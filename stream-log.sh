@@ -28,9 +28,11 @@ printf "Connection: keep-alive\r\n\r\n";
 ( while :; do sleep 30; printf ": ping\r\n\r\n"; done ) &
 # Stream last lines and follow, format, then emit as SSE data events
 # If the client disconnects, the printf writes will get SIGPIPE; we ignore it and exit 0
+
+# for some reaons, this sed commands breaks if it is split over multiple lines
 {
   journalctl -u sib-www-sync --no-hostname -o short -n 500 -f \
-    | sed -uE "s/^([A-Z][a-z]{2} [ 0-9][0-9] [0-9]{2}:[0-9]{2}:[0-9]{2}) [^:]+: (.*)$/\1 | \2/" \
+    | sed -uE "/DEV/d;s/^([A-Z][a-z]{2} [ 0-9][0-9] [0-9]{2}:[0-9]{2}:[0-9]{2}) [^:]+: (.*)$/\1 | \2/" \
     | while IFS= read -r line; do printf "data: %s\r\n\r\n" "$line" || break; done
 } || true
 
