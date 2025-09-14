@@ -299,14 +299,10 @@ def Get(route):
                 GetNewUrl(route.path, for_writing=True, use_orig=True), "rb"
             ) as f:
                 if args.verbose:
-                    printdev(
-                        f"Moving file {route.path} from previous download...", end=""
-                    )
+                    printdev(f"Moving file {route.path} from previous download...")
                 return (f.read(), False, {}, False)
         else:
-            printdev(
-                f"File {route.path} is invalidated and will be redownloaded...", end=""
-            )
+            printdev(f"File {route.path} is invalidated and will be redownloaded...")
             with open(
                 GetNewUrl(route.path, for_writing=True, use_orig=True), "rb"
             ) as f:
@@ -316,8 +312,7 @@ def Get(route):
                 )
     else:
         printdev(
-            f"Info: File {route.path} did not exist in previous download or was explicitly removed (index.html, activities, ...) or was invalidated by update to navbar/theme: downloading...",
-            end="",
+            f"Info: File {route.path} did not exist in previous download or was explicitly removed (index.html, activities, ...) or was invalidated by update to navbar/theme: downloading..."
         )
     newfile = Download(route.path)
     return (newfile, True, originalcontent, specialCase)
@@ -691,8 +686,6 @@ def HandleSingleFile(nextRoute):
 
             origPath.rename(destPath)
 
-        if args.verbose:
-            print("Done.")
     except Exception as e:
         if args.verbose:
             print("Something went wrong while working on path ", nextRoute)
