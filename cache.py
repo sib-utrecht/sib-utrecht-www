@@ -815,6 +815,6 @@ time = str(end_stopwatch - start_stopwatch)
 pos = time.find(".")
 if pos != -1:
     time = time[:pos]
-print(f"Finished downloading!\nDownloaded {numdownloaded} files in {time} seconds")
+print(f"Finished downloading {numdownloaded} files in {time} seconds")
 
 printdev(f"Removed rel types: {removedRelTypes}")

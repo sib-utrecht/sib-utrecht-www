@@ -32,7 +32,7 @@ printf "Connection: keep-alive\r\n\r\n";
 # for some reaons, this sed commands breaks if it is split over multiple lines
 {
   journalctl -u sib-www-sync --no-hostname -o short -n 500 -f \
-    | sed -uE "/DEV/d;s/^([A-Z][a-z]{2} [ 0-9][0-9] [0-9]{2}:[0-9]{2}:[0-9]{2}) [^:]+: (.*)$/\1 | \2/" \
+    | sed -uE "/sib-www-sync.service/d;/DEV/d;s/^([A-Z][a-z]{2} [ 0-9][0-9] [0-9]{2}:[0-9]{2}:[0-9]{2}) [^:]+: (.*)$/\1 | \2/" \
     | while IFS= read -r line; do printf "data: %s\r\n\r\n" "$line" || break; done
 } || true
 
