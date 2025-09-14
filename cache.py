@@ -24,8 +24,8 @@ WARNING_TAG = f"{ANSI_YELLOW}WARNING:{ANSI_RESET}"
 
 
 # This text is filtered to the user by 'stream-log.sh', but still shown in the journalctl to ease debugging
-def printdev(text):
-    print(f"DEV: {text}")
+def printdev(text, end="\n"):
+    print(f"DEV: {text}", end=end)
 
 
 load_dotenv()
@@ -821,7 +821,7 @@ end_stopwatch = perf_counter()
 time = str(end_stopwatch - start_stopwatch)
 pos = time.find(".")
 if pos != -1:
-    text = time[:pos]
+    time = time[:pos]
 print(f"Finished downloading!\nDownloaded {numdownloaded} files in {time} seconds")
 
 printdev(f"Removed rel types: {removedRelTypes}")
