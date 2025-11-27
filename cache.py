@@ -207,9 +207,12 @@ numdownloaded = 0
 def Download(path):
     global numdownloaded
     numdownloaded += 1
+    # paths are stored here without the ending slash, but for some reasons dutch pages like /nl/structure redirect to /structure, but /nl/structure/ does not
+    if not path.endswith("/") and "." not in path:
+        path += "/"
     r = session.get(website + path, auth=auth, params=params)
     sleep(0.05)
-    if r.status_code == 404 and path == "/404.html":
+    if r.status_code == 404 and path.endswith("/404.html"):
         return r.content
 
     # Also fails on 404
